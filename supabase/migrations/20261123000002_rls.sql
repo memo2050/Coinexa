@@ -22,6 +22,13 @@ revoke all on function public.is_member(text) from public;
 grant execute on function public.is_platform_admin() to authenticated, service_role;
 grant execute on function public.is_member(text) to authenticated, service_role;
 
+-- Explicit table privileges, so access never depends on the project's
+-- "grant API access to new tables automatically" setting. Row level security
+-- below still decides which rows each signed-in user may touch.
+grant usage on schema public to anon, authenticated, service_role;
+grant select, insert, update, delete on all tables in schema public to authenticated;
+grant all on all tables in schema public to service_role;
+
 alter table public.profiles enable row level security;
 alter table public.organizations enable row level security;
 alter table public.organization_members enable row level security;

@@ -10,4 +10,4 @@ create function auth.uid() returns uuid language sql stable as $$ select nullif(
 create function auth.jwt() returns jsonb language sql stable as $$ select coalesce(nullif(current_setting('request.jwt.claims', true), ''), '{}')::jsonb $$;
 grant usage on schema auth, public to anon, authenticated, service_role;
 grant execute on all functions in schema auth to anon, authenticated, service_role;
-alter default privileges in schema public grant all on tables to anon, authenticated, service_role;
+-- No default privileges: the migrations must grant access explicitly (as on a Supabase project with auto-grant disabled).
