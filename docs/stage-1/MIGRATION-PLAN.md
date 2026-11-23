@@ -5,6 +5,7 @@
 | Status | **Draft for owner review.** No implementation starts until the owner approves this plan in writing. |
 | Prepared | 2026-11-23 |
 | Revision 2 | 2026-11-23 — owner decision: **no legacy user import**; everyone signs up new with email or Google (§3.3 rewritten, §3.1/3.2, phases 2/3/11, R2, R14, Q2, Q10 updated) |
+| Revision 4 | 2026-11-23 — §4.3 aligned with §3.3 (no existing workspace; owner setup script) |
 | Revision 3 | 2026-11-23 — owner decision: **no legacy data import at all, fresh start.** The new system starts empty; nothing is copied from Base44 (§0.2, §3, §4.2 #9, §4.4, §4.5, phases 2/3/11, risks R1–R3, questions updated) |
 | Branch | `stage-1/migration-plan` (branched from `main` @ `9162c32`, tag `base44-original`). Not merged into `main`. |
 | Inputs inspected | `main` (Base44 export), `stage-0/baseline-screenshots` (`docs/stage-0/README.md`), `stage0-reference` (another session's reference screenshots + capture tools) |
@@ -301,9 +302,9 @@ All become Supabase Edge Functions with identical names unless stated.
 | Google sign-in (`loginWithProvider('google')`) | Supabase Google OAuth (needs a Google Cloud OAuth client — free) | Same button |
 | Base44 hosted login wall (Microsoft, Facebook, Apple too) when app set to private | Not used; app's own pages (Stage 0 obs. 1) | Only if owner wants a private mode — Q8 |
 | Password reset | Supabase reset email → existing `/reset-password` page | Same page |
-| `User.role` admin/user | `profiles.role`, admin assigned only via SQL by the owner | — |
+| `User.role` admin/user | `profiles.role`; the owner becomes admin, and his new workspace is marked internal, through the one-time owner setup script (§3.3) | — |
 | `organization_ids` array synced by server | membership checked live in RLS | — (simpler, no sync race) |
-| Existing accounts | Not carried over. Everyone signs up new with email or Google (owner decision) | **Yes — everyone creates a new account**; only the owner is attached to the existing workspace (§3.3) |
+| Existing accounts and data | Not carried over (fresh start). Everyone, including the owner, signs up new with email or Google and gets a new, empty workspace (§3.3) | **Yes — everyone creates a new account and starts with an empty workspace** |
 
 ### 4.4 Risks to existing features and data (detail in §6.2)
 
