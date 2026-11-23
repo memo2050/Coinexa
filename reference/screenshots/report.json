@@ -1,0 +1,509 @@
+{
+ "report": [
+  {
+   "view": "desktop",
+   "page": "/",
+   "landed": "/",
+   "file": "desktop/public__home.png",
+   "errors": []
+  },
+  {
+   "view": "desktop",
+   "page": "/login",
+   "landed": "/login",
+   "file": "desktop/public__login.png",
+   "errors": []
+  },
+  {
+   "view": "desktop",
+   "page": "/register",
+   "landed": "/register",
+   "file": "desktop/public__register.png",
+   "errors": []
+  },
+  {
+   "view": "desktop",
+   "page": "/forgot-password",
+   "landed": "/forgot-password",
+   "file": "desktop/public__forgot-password.png",
+   "errors": []
+  },
+  {
+   "view": "desktop",
+   "page": "/reset-password",
+   "landed": "/reset-password",
+   "file": "desktop/public__reset-password.png",
+   "errors": []
+  },
+  {
+   "view": "desktop",
+   "page": "/privacy",
+   "landed": "/privacy",
+   "file": "desktop/public__privacy.png",
+   "errors": []
+  },
+  {
+   "view": "desktop",
+   "page": "/terms",
+   "landed": "/terms",
+   "file": "desktop/public__terms.png",
+   "errors": []
+  },
+  {
+   "view": "desktop",
+   "page": "/page-that-does-not-exist",
+   "landed": "/page-that-does-not-exist",
+   "file": "desktop/public__page-that-does-not-exist.png",
+   "errors": []
+  },
+  {
+   "view": "desktop",
+   "page": "/agents",
+   "landed": "/agents",
+   "file": "desktop/app__agents.png",
+   "errors": []
+  },
+  {
+   "view": "desktop",
+   "page": "/agents/new",
+   "landed": "/agents/new",
+   "file": "desktop/app__agents_new.png",
+   "errors": []
+  },
+  {
+   "view": "desktop",
+   "page": "/agents/6ae80131e1a9a3089746f706",
+   "landed": "/agents/6ae80131e1a9a3089746f706",
+   "file": "desktop/app__agents_detail-nadia.png",
+   "errors": []
+  },
+  {
+   "view": "desktop",
+   "page": "/tasks",
+   "landed": "/tasks",
+   "file": "desktop/app__tasks.png",
+   "errors": []
+  },
+  {
+   "view": "desktop",
+   "page": "/inbox",
+   "landed": "/inbox",
+   "file": "desktop/app__inbox.png",
+   "errors": []
+  },
+  {
+   "view": "desktop",
+   "page": "/usage",
+   "landed": "/usage",
+   "file": "desktop/app__usage.png",
+   "errors": []
+  },
+  {
+   "view": "desktop",
+   "page": "/security-check",
+   "landed": "/security-check",
+   "file": "desktop/app__security-check.png",
+   "errors": []
+  },
+  {
+   "view": "desktop",
+   "page": "/billing/success",
+   "landed": "/billing/success",
+   "file": "desktop/app__billing_success.png",
+   "errors": []
+  },
+  {
+   "view": "desktop",
+   "page": "/admin",
+   "landed": "/admin",
+   "file": "desktop/app__admin.png",
+   "errors": []
+  },
+  {
+   "view": "desktop",
+   "page": "/admin/agents",
+   "landed": "/admin/agents",
+   "file": "desktop/app__admin_agents.png",
+   "errors": []
+  },
+  {
+   "view": "desktop",
+   "page": "/admin/runs",
+   "landed": "/admin/runs",
+   "file": "desktop/app__admin_runs.png",
+   "errors": []
+  },
+  {
+   "view": "desktop",
+   "page": "/admin/usage",
+   "landed": "/admin/usage",
+   "file": "desktop/app__admin_usage.png",
+   "errors": []
+  },
+  {
+   "view": "desktop",
+   "page": "/admin/customers",
+   "landed": "/admin/customers",
+   "file": "desktop/app__admin_customers.png",
+   "errors": []
+  },
+  {
+   "view": "desktop",
+   "page": "/admin/billing",
+   "landed": "/admin/billing",
+   "file": "desktop/app__admin_billing.png",
+   "errors": []
+  },
+  {
+   "view": "desktop",
+   "page": "/admin/reports",
+   "landed": "/admin/reports",
+   "file": "desktop/app__admin_reports.png",
+   "errors": []
+  },
+  {
+   "view": "desktop",
+   "page": "/admin/activity",
+   "landed": "/admin/activity",
+   "file": "desktop/app__admin_activity.png",
+   "errors": []
+  },
+  {
+   "view": "tablet",
+   "page": "/",
+   "landed": "/",
+   "file": "tablet/public__home.png",
+   "errors": []
+  },
+  {
+   "view": "tablet",
+   "page": "/login",
+   "landed": "/login",
+   "file": "tablet/public__login.png",
+   "errors": []
+  },
+  {
+   "view": "tablet",
+   "page": "/register",
+   "landed": "/register",
+   "file": "tablet/public__register.png",
+   "errors": []
+  },
+  {
+   "view": "tablet",
+   "page": "/forgot-password",
+   "landed": "/forgot-password",
+   "file": "tablet/public__forgot-password.png",
+   "errors": []
+  },
+  {
+   "view": "tablet",
+   "page": "/reset-password",
+   "landed": "/reset-password",
+   "file": "tablet/public__reset-password.png",
+   "errors": []
+  },
+  {
+   "view": "tablet",
+   "page": "/privacy",
+   "landed": "/privacy",
+   "file": "tablet/public__privacy.png",
+   "errors": []
+  },
+  {
+   "view": "tablet",
+   "page": "/terms",
+   "landed": "/terms",
+   "file": "tablet/public__terms.png",
+   "errors": []
+  },
+  {
+   "view": "tablet",
+   "page": "/page-that-does-not-exist",
+   "landed": "/page-that-does-not-exist",
+   "file": "tablet/public__page-that-does-not-exist.png",
+   "errors": []
+  },
+  {
+   "view": "tablet",
+   "page": "/agents",
+   "landed": "/agents",
+   "file": "tablet/app__agents.png",
+   "errors": []
+  },
+  {
+   "view": "tablet",
+   "page": "/agents/new",
+   "landed": "/agents/new",
+   "file": "tablet/app__agents_new.png",
+   "errors": []
+  },
+  {
+   "view": "tablet",
+   "page": "/agents/6ae80131e1a9a3089746f706",
+   "landed": "/agents/6ae80131e1a9a3089746f706",
+   "file": "tablet/app__agents_detail-nadia.png",
+   "errors": []
+  },
+  {
+   "view": "tablet",
+   "page": "/tasks",
+   "landed": "/tasks",
+   "file": "tablet/app__tasks.png",
+   "errors": []
+  },
+  {
+   "view": "tablet",
+   "page": "/inbox",
+   "landed": "/inbox",
+   "file": "tablet/app__inbox.png",
+   "errors": []
+  },
+  {
+   "view": "tablet",
+   "page": "/usage",
+   "landed": "/usage",
+   "file": "tablet/app__usage.png",
+   "errors": []
+  },
+  {
+   "view": "tablet",
+   "page": "/security-check",
+   "landed": "/security-check",
+   "file": "tablet/app__security-check.png",
+   "errors": []
+  },
+  {
+   "view": "tablet",
+   "page": "/billing/success",
+   "landed": "/billing/success",
+   "file": "tablet/app__billing_success.png",
+   "errors": []
+  },
+  {
+   "view": "tablet",
+   "page": "/admin",
+   "landed": "/admin",
+   "file": "tablet/app__admin.png",
+   "errors": []
+  },
+  {
+   "view": "tablet",
+   "page": "/admin/agents",
+   "landed": "/admin/agents",
+   "file": "tablet/app__admin_agents.png",
+   "errors": []
+  },
+  {
+   "view": "tablet",
+   "page": "/admin/runs",
+   "landed": "/admin/runs",
+   "file": "tablet/app__admin_runs.png",
+   "errors": []
+  },
+  {
+   "view": "tablet",
+   "page": "/admin/usage",
+   "landed": "/admin/usage",
+   "file": "tablet/app__admin_usage.png",
+   "errors": []
+  },
+  {
+   "view": "tablet",
+   "page": "/admin/customers",
+   "landed": "/admin/customers",
+   "file": "tablet/app__admin_customers.png",
+   "errors": []
+  },
+  {
+   "view": "tablet",
+   "page": "/admin/billing",
+   "landed": "/admin/billing",
+   "file": "tablet/app__admin_billing.png",
+   "errors": []
+  },
+  {
+   "view": "tablet",
+   "page": "/admin/reports",
+   "landed": "/admin/reports",
+   "file": "tablet/app__admin_reports.png",
+   "errors": []
+  },
+  {
+   "view": "tablet",
+   "page": "/admin/activity",
+   "landed": "/admin/activity",
+   "file": "tablet/app__admin_activity.png",
+   "errors": []
+  },
+  {
+   "view": "mobile",
+   "page": "/",
+   "landed": "/",
+   "file": "mobile/public__home.png",
+   "errors": []
+  },
+  {
+   "view": "mobile",
+   "page": "/login",
+   "landed": "/login",
+   "file": "mobile/public__login.png",
+   "errors": []
+  },
+  {
+   "view": "mobile",
+   "page": "/register",
+   "landed": "/register",
+   "file": "mobile/public__register.png",
+   "errors": []
+  },
+  {
+   "view": "mobile",
+   "page": "/forgot-password",
+   "landed": "/forgot-password",
+   "file": "mobile/public__forgot-password.png",
+   "errors": []
+  },
+  {
+   "view": "mobile",
+   "page": "/reset-password",
+   "landed": "/reset-password",
+   "file": "mobile/public__reset-password.png",
+   "errors": []
+  },
+  {
+   "view": "mobile",
+   "page": "/privacy",
+   "landed": "/privacy",
+   "file": "mobile/public__privacy.png",
+   "errors": []
+  },
+  {
+   "view": "mobile",
+   "page": "/terms",
+   "landed": "/terms",
+   "file": "mobile/public__terms.png",
+   "errors": []
+  },
+  {
+   "view": "mobile",
+   "page": "/page-that-does-not-exist",
+   "landed": "/page-that-does-not-exist",
+   "file": "mobile/public__page-that-does-not-exist.png",
+   "errors": []
+  },
+  {
+   "view": "mobile",
+   "page": "/agents",
+   "landed": "/agents",
+   "file": "mobile/app__agents.png",
+   "errors": []
+  },
+  {
+   "view": "mobile",
+   "page": "/agents/new",
+   "landed": "/agents/new",
+   "file": "mobile/app__agents_new.png",
+   "errors": []
+  },
+  {
+   "view": "mobile",
+   "page": "/agents/6ae80131e1a9a3089746f706",
+   "landed": "/agents/6ae80131e1a9a3089746f706",
+   "file": "mobile/app__agents_detail-nadia.png",
+   "errors": []
+  },
+  {
+   "view": "mobile",
+   "page": "/tasks",
+   "landed": "/tasks",
+   "file": "mobile/app__tasks.png",
+   "errors": []
+  },
+  {
+   "view": "mobile",
+   "page": "/inbox",
+   "landed": "/inbox",
+   "file": "mobile/app__inbox.png",
+   "errors": []
+  },
+  {
+   "view": "mobile",
+   "page": "/usage",
+   "landed": "/usage",
+   "file": "mobile/app__usage.png",
+   "errors": []
+  },
+  {
+   "view": "mobile",
+   "page": "/security-check",
+   "landed": "/security-check",
+   "file": "mobile/app__security-check.png",
+   "errors": []
+  },
+  {
+   "view": "mobile",
+   "page": "/billing/success",
+   "landed": "/billing/success",
+   "file": "mobile/app__billing_success.png",
+   "errors": []
+  },
+  {
+   "view": "mobile",
+   "page": "/admin",
+   "landed": "/admin",
+   "file": "mobile/app__admin.png",
+   "errors": []
+  },
+  {
+   "view": "mobile",
+   "page": "/admin/agents",
+   "landed": "/admin/agents",
+   "file": "mobile/app__admin_agents.png",
+   "errors": []
+  },
+  {
+   "view": "mobile",
+   "page": "/admin/runs",
+   "landed": "/admin/runs",
+   "file": "mobile/app__admin_runs.png",
+   "errors": []
+  },
+  {
+   "view": "mobile",
+   "page": "/admin/usage",
+   "landed": "/admin/usage",
+   "file": "mobile/app__admin_usage.png",
+   "errors": []
+  },
+  {
+   "view": "mobile",
+   "page": "/admin/customers",
+   "landed": "/admin/customers",
+   "file": "mobile/app__admin_customers.png",
+   "errors": []
+  },
+  {
+   "view": "mobile",
+   "page": "/admin/billing",
+   "landed": "/admin/billing",
+   "file": "mobile/app__admin_billing.png",
+   "errors": []
+  },
+  {
+   "view": "mobile",
+   "page": "/admin/reports",
+   "landed": "/admin/reports",
+   "file": "mobile/app__admin_reports.png",
+   "errors": []
+  },
+  {
+   "view": "mobile",
+   "page": "/admin/activity",
+   "landed": "/admin/activity",
+   "file": "mobile/app__admin_activity.png",
+   "errors": []
+  }
+ ],
+ "unhandled": []
+}
