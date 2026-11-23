@@ -21,6 +21,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with: { ref: stage-2/build }
+      - name: Load staging settings (deploy/staging.env)
+        run: |
+          grep -E '^[A-Z_]+=' deploy/staging.env >> "$GITHUB_ENV"
       - name: Download
         run: |
           mkdir -p public/media

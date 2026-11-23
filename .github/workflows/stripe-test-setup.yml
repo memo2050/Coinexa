@@ -27,9 +27,12 @@ jobs:
     env:
       STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-      PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
       RECREATE: ${{ inputs.recreate_webhook || 'false' }}
     steps:
+      - uses: actions/checkout@v4
+      - name: Load staging settings (deploy/staging.env)
+        run: |
+          grep -E '^[A-Z_]+=' deploy/staging.env >> "$GITHUB_ENV"
       - uses: supabase/setup-cli@v1
         with: { version: latest }
       - name: Test key only
@@ -60,7 +63,7 @@ jobs:
               if (price.livemode) throw new Error("Live-mode price returned; aborting.");
               out.push(`${p.env}=${price.id}`);
             }
-            const url = `https://${process.env.PROJECT_REF}.supabase.co/functions/v1/stripeWebhook`;
+            const url = `https://${process.env.SUPABASE_PROJECT_REF}.supabase.co/functions/v1/stripeWebhook`;
             const hooks = await api("GET", "/webhook_endpoints?limit=100");
             const existing = hooks.data.filter((h) => h.url === url);
             if (existing.length && process.env.RECREATE !== "true") {
@@ -78,5 +81,5 @@ jobs:
             }
             (await import("node:fs")).writeFileSync("/tmp/stripe.env", out.join("\n") + "\n");
           '
-          supabase secrets set --project-ref "$PROJECT_REF" --env-file /tmp/stripe.env
+          supabase secrets set --project-ref "$SUPABASE_PROJECT_REF" --env-file /tmp/stripe.env
           rm -f /tmp/stripe.env
