@@ -15,7 +15,20 @@ const out = join(root, 'supabase', 'functions');
 // Small, reviewed behaviour patches applied on top of the original code.
 // Each entry: [file, find, replace, reason]. The port fails if a find string
 // is missing, so an upstream change can never be silently skipped.
-const PATCHES = [];
+const PATCHES = [
+  [
+    'shared/stripeCatalog.ts',
+    "priceId: 'price_1UbQjJCk4hUJftLgdoZRF9TP',",
+    "priceId: Deno.env.get('STRIPE_PRICE_AGENT_SPRINT') || 'price_1UbQjJCk4hUJftLgdoZRF9TP',",
+    'Price ids differ per Stripe account and mode; the test-mode ids are set as function secrets.',
+  ],
+  [
+    'shared/stripeCatalog.ts',
+    "priceId: 'price_1UbQjJCk4hUJftLg47pSERqq',",
+    "priceId: Deno.env.get('STRIPE_PRICE_STUDIO_RETAINER') || 'price_1UbQjJCk4hUJftLg47pSERqq',",
+    'Same as above.',
+  ],
+];
 
 function rewrite(code, fromShared) {
   const shim = fromShared ? './base44shim.ts' : '../_shared/base44shim.ts';

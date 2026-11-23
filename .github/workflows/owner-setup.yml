@@ -1,0 +1,75 @@
+# One-time OWNER SETUP for staging: makes the owner's NEW, email-verified account
+# Platform Admin and marks the owner's workspace internal (supabase/owner-setup.sql).
+# Manual only. Requires typing the approval phrase. No data is imported.
+name: Owner setup (staging)
+
+on:
+  # A workflow on a non-default branch cannot be started from the Actions tab, and
+  # main must not change. So this runs when ops/owner-setup.request is committed to the
+  # stage-2 branch (only done after the owner's approval in chat).
+  push:
+    branches: [stage-2/build]
+    paths: ['ops/owner-setup.request']
+  workflow_dispatch:
+    inputs:
+      owner_email:
+        description: Email the owner signed up with (must already be verified)
+        required: true
+      approval:
+        description: Type exactly APPROVE OWNER SETUP
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  owner-setup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check approval and input
+        env:
+          EMAIL: ${{ inputs.owner_email || vars.OWNER_EMAIL }}
+          APPROVAL: ${{ inputs.approval }}
+        run: |
+          [ -z "$APPROVAL" ] && APPROVAL=$(head -n1 ops/owner-setup.request 2>/dev/null)
+          [ "$APPROVAL" = "APPROVE OWNER SETUP" ] || { echo "Approval phrase missing."; exit 1; }
+          echo "$EMAIL" | grep -Eq '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$' || { echo "Not an email address."; exit 1; }
+      - name: Run owner-setup.sql through the Supabase Management API
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
+          EMAIL: ${{ inputs.owner_email || vars.OWNER_EMAIL }}
+        run: |
+          node -e '
+            const fs = require("fs");
+            const sql = `set owner.email = ${JSON.stringify(process.env.EMAIL.toLowerCase()).replace(/"/g, "\x27")};\n` + fs.readFileSync("supabase/owner-setup.sql", "utf8");
+            fetch(`https://api.supabase.com/v1/projects/${process.env.PROJECT_REF}/database/query`, {
+              method: "POST",
+              headers: { Authorization: `Bearer ${process.env.SUPABASE_ACCESS_TOKEN}`, "Content-Type": "application/json" },
+              body: JSON.stringify({ query: sql }),
+            }).then(async (r) => { const t = await r.text(); console.log(r.status, t.slice(0, 500)); if (!r.ok) process.exit(1); });
+          '
+      - name: Verify
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
+          EMAIL: ${{ inputs.owner_email || vars.OWNER_EMAIL }}
+        run: |
+          node -e '
+            const email = process.env.EMAIL.toLowerCase().replace(/\x27/g, "");
+            const query = `select p.role, o.internal, o.data_class from public.profiles p
+              join public.organization_members m on m.user_id = p.id and m.status = \x27active\x27 and m.member_role = \x27owner\x27
+              join public.organizations o on o.id = m.organization_id where lower(p.email) = \x27${email}\x27`;
+            fetch(`https://api.supabase.com/v1/projects/${process.env.PROJECT_REF}/database/query`, {
+              method: "POST",
+              headers: { Authorization: `Bearer ${process.env.SUPABASE_ACCESS_TOKEN}`, "Content-Type": "application/json" },
+              body: JSON.stringify({ query }),
+            }).then(async (r) => {
+              const rows = await r.json();
+              console.log(JSON.stringify(rows));
+              const ok = Array.isArray(rows) && rows.some((x) => x.role === "admin" && x.internal === true && x.data_class === "internal");
+              if (!ok) { console.log("Owner setup NOT verified"); process.exit(1); }
+              console.log("Owner setup verified: platform admin + internal workspace");
+            });
+          '

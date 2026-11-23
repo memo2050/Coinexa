@@ -116,7 +116,7 @@ update public.organization_members set status = 'active' where organization_id =
 
 -- ---------- Owner setup script + admin bypass ----------
 set owner.email = 'owner@test.local';
-\i /home/claude/coinexa/supabase/owner-setup.sql
+\i owner-setup.sql
 select pg_temp.check((select role from public.profiles where email = 'owner@test.local') = 'admin', '22 owner setup grants admin');
 select pg_temp.check((select o.internal and o.data_class = 'internal' from public.organizations o
   join public.organization_members m on m.organization_id = o.id
@@ -137,7 +137,7 @@ do $$ begin
   end;
 end $$;
 \set ON_ERROR_STOP off
-\i /home/claude/coinexa/supabase/owner-setup.sql
+\i owner-setup.sql
 \set ON_ERROR_STOP on
 select pg_temp.check((select role from public.profiles where email = 'nope@test.local') = 'user', '26 unconfirmed account is not promoted');
 

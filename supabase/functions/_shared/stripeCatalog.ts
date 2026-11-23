@@ -6,7 +6,7 @@ export const STRIPE_TIERS = {
   agent_sprint: {
     key: 'agent_sprint',
     name: 'Agent Sprint',
-    priceId: 'price_1UbQjJCk4hUJftLgdoZRF9TP',
+    priceId: Deno.env.get('STRIPE_PRICE_AGENT_SPRINT') || 'price_1UbQjJCk4hUJftLgdoZRF9TP',
     amount: 2500,
     currency: 'usd',
     plan: 'starter',
@@ -14,7 +14,7 @@ export const STRIPE_TIERS = {
   studio_retainer: {
     key: 'studio_retainer',
     name: 'Studio Retainer',
-    priceId: 'price_1UbQjJCk4hUJftLg47pSERqq',
+    priceId: Deno.env.get('STRIPE_PRICE_STUDIO_RETAINER') || 'price_1UbQjJCk4hUJftLg47pSERqq',
     amount: 5000,
     currency: 'usd',
     plan: 'growth',

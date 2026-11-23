@@ -1,0 +1,131 @@
+# Coinexa STAGING deploy. Never touches main, production, coinexa.net DNS or Base44.
+#
+# Configuration lives ONLY in GitHub → Settings → Secrets and variables → Actions:
+#   Variables (not secret): SUPABASE_PROJECT_REF, STAGING_HOST (Hostinger temporary domain,
+#                           e.g. something.hostingersite.com), OWNER_EMAIL
+#   Secrets:  SUPABASE_ACCESS_TOKEN, SUPABASE_DB_PASSWORD, ANTHROPIC_API_KEY, RESEND_API_KEY,
+#             STRIPE_SECRET_KEY (sk_test_ only), GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET,
+#             HOSTINGER_FTP_HOST, HOSTINGER_FTP_USER, HOSTINGER_FTP_PASSWORD
+# Any step whose secrets are not set yet is skipped, so setup can happen in any order.
+name: Staging deploy
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [stage-2/build]
+    paths-ignore: ['ops/**', 'docs/**']
+
+concurrency:
+  group: staging-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  # Secrets are exposed to steps as env so `if:` can test whether they are set.
+  ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+  RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+  STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+  GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+  GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+  FTP_HOST: ${{ secrets.HOSTINGER_FTP_HOST }}
+  FTP_USER: ${{ secrets.HOSTINGER_FTP_USER }}
+  FTP_PASSWORD: ${{ secrets.HOSTINGER_FTP_PASSWORD }}
+  OWNER_EMAIL: ${{ vars.OWNER_EMAIL }}
+  SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+  SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+  PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
+  STAGING_HOST: ${{ vars.STAGING_HOST }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - uses: denoland/setup-deno@v2
+        with: { deno-version: v2.x }
+      - run: npm ci
+      - name: Shared code in sync
+        run: node scripts/check-shared.mjs
+      - name: Ported functions match base44/ (only import lines and reviewed patches differ)
+        run: node scripts/port-functions.mjs && git diff --exit-code -- supabase/functions
+      - name: Unit tests (query translation, AI adapter, budget guard)
+        working-directory: supabase/functions
+        run: deno test --no-check --no-lock -A _tests/
+      - name: Database policy tests (26 isolation checks on a throwaway Postgres)
+        run: |
+          sudo systemctl start postgresql
+          sudo -u postgres psql -c "select 1" >/dev/null
+          sudo bash supabase/tests/run_local.sh | tee /tmp/rls.txt
+          grep -q "ALL RLS CHECKS PASSED" /tmp/rls.txt
+      - name: Lint
+        run: npm run lint
+      - name: Secret scan (nothing that looks like a live key may be committed)
+        run: |
+          if git grep -nE "sk_live_[0-9A-Za-z]{10,}|sk-ant-[A-Za-z0-9_-]{20,}|re_[A-Za-z0-9]{20,}|service_role\"?\s*[:=]\s*\"ey" -- ':!*.md'; then
+            echo "Possible secret committed"; exit 1; fi
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    if: ${{ vars.SUPABASE_PROJECT_REF != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - uses: supabase/setup-cli@v1
+        with: { version: latest }
+
+      - name: Refuse live Stripe keys
+        run: |
+          case "$STRIPE_SECRET_KEY" in sk_live_*|rk_live_*) echo "Live Stripe key found. Staging accepts test keys only."; exit 1;; esac
+
+      - name: Link project
+        run: supabase link --project-ref "$PROJECT_REF" --password "$SUPABASE_DB_PASSWORD"
+
+      - name: Database migrations
+        run: supabase db push --password "$SUPABASE_DB_PASSWORD" --include-all
+
+      - name: Auth settings (site URL, email codes, Google, SMTP)
+        if: ${{ env.STAGING_HOST != '' && env.RESEND_API_KEY != '' && env.GOOGLE_CLIENT_ID != '' }}
+        run: |
+          sed -i "s/__SITE_HOST__/${STAGING_HOST}/g" supabase/config.toml
+          supabase config push --project-ref "$PROJECT_REF" --yes
+
+      - name: Function secrets
+        run: |
+          f=$(mktemp)
+          {
+            echo "APP_ID=coinexa-staging"
+            echo "AI_MODEL=claude-sonnet-5-5"
+            echo "AI_MONTHLY_BUDGET_USD=18"
+            [ -n "$STAGING_HOST" ] && echo "APP_URL=https://${STAGING_HOST}" && echo "ALLOWED_ORIGINS=https://${STAGING_HOST},http://localhost:5173"
+            [ -n "$OWNER_EMAIL" ] && echo "EMAIL_REDIRECT_TO=${OWNER_EMAIL}"
+            [ -n "$ANTHROPIC_API_KEY" ] && echo "ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}"
+            [ -n "$RESEND_API_KEY" ] && echo "RESEND_API_KEY=${RESEND_API_KEY}"
+            [ -n "$STRIPE_SECRET_KEY" ] && echo "STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY}"
+            true
+          } > "$f"
+          supabase secrets set --project-ref "$PROJECT_REF" --env-file "$f"
+          rm -f "$f"
+
+      - name: Deploy functions
+        run: supabase functions deploy --project-ref "$PROJECT_REF" --use-api
+
+      - name: Build website
+        run: |
+          npm ci
+          ANON=$(supabase projects api-keys --project-ref "$PROJECT_REF" -o json | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const k=JSON.parse(s);const a=k.find(x=>x.name==='anon')||k.find(x=>x.type==='publishable');process.stdout.write(a.api_key)})")
+          echo "::add-mask::$ANON"
+          VITE_SUPABASE_URL="https://${PROJECT_REF}.supabase.co" VITE_SUPABASE_ANON_KEY="$ANON" VITE_APP_ID=coinexa-staging npm run build
+          # The bundle must never contain a server-side secret.
+          ! grep -rqE "service_role|sk_test_|sk_live_|sk-ant-|re_[A-Za-z0-9]{20,}" dist/
+
+      - name: Upload to Hostinger (staging site only)
+        if: ${{ env.STAGING_HOST != '' && env.FTP_HOST != '' }}
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq lftp
+          lftp -u "$FTP_USER","$FTP_PASSWORD" "$FTP_HOST" -e "set ftp:ssl-allow yes; set ssl:verify-certificate no; mirror -R --delete --verbose=1 --exclude-glob .well-known dist/ public_html/; bye"

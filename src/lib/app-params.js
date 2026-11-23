@@ -1,28 +1,15 @@
-import { getAccessToken } from '@base44/sdk';
-
-const isNode = typeof window === 'undefined';
-
-const isClearAccessTokenRequested = () =>
-	!isNode && new URLSearchParams(window.location.search).get("clear_access_token") === 'true';
-
-const clearStoredAccessToken = () => {
-	window.localStorage.removeItem('base44_access_token');
-	window.localStorage.removeItem('token');
-}
-
-const getAppParams = () => {
-	if (isClearAccessTokenRequested()) {
-		clearStoredAccessToken();
-	}
-	return {
-		appId: import.meta.env.VITE_BASE44_APP_ID,
-		token: getAccessToken(),
-		functionsVersion: (!isNode && new URLSearchParams(window.location.search).get("functions_version")?.trim()) || import.meta.env.VITE_BASE44_FUNCTIONS_VERSION,
-		appBaseUrl: import.meta.env.VITE_BASE44_APP_BASE_URL,
-	}
-}
-
+// Public build-time settings. The Supabase URL and anon (publishable) key are
+// designed to be public; access is enforced by row level security on the server.
+// Values come from .env files at build time (see .env.example), never from source.
 
 export const appParams = {
-	...getAppParams()
+  appId: import.meta.env.VITE_APP_ID || 'coinexa',
+  supabaseUrl: import.meta.env.VITE_SUPABASE_URL,
+  supabaseAnonKey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+  // Kept for code that still reads it; sessions are managed by supabase-js.
+  token: null,
+};
+
+if (!appParams.supabaseUrl || !appParams.supabaseAnonKey) {
+  console.error('Coinexa: VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY are not set for this build.');
 }

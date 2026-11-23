@@ -1,0 +1,47 @@
+# Copies Coinexa's own logo, images and videos from Base44's media hosts into
+# public/media/ on the stage-2 branch, so the new site no longer depends on Base44.
+# Read-only towards Base44 (plain downloads of public files). Manual only.
+name: Self-host media (copy from Base44)
+
+on:
+  # A workflow on a non-default branch cannot be started from the Actions tab, and
+  # main must not change. So this runs when ops/media-selfhost.request is committed to the
+  # stage-2 branch (only done after the owner's approval in chat).
+  push:
+    branches: [stage-2/build]
+    paths: ['ops/media-selfhost.request']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  media:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: stage-2/build }
+      - name: Download
+        run: |
+          mkdir -p public/media
+          while read -r name url; do
+            [ -z "$name" ] && continue
+            curl -fsSL --retry 3 -o "public/media/$name" "$url"
+            echo "$name $(stat -c %s public/media/$name) bytes"
+          done <<'EOF'
+          logo.png https://media.base44.com/images/public/6ae24c523e67d1221bba9b1a/602210d7a_logo.png
+          coinexa-logo.png https://base44.app/api/apps/6ae24c523e67d1221bba9b1a/files/mp/public/6ae24c523e67d1221bba9b1a/661246468_coinexa-logo.png
+          generated_image.png https://media.base44.com/images/public/6ae24c523e67d1221bba9b1a/90ce52eba_generated_image.png
+          coinexa-showreel.mp4 https://base44.app/api/apps/6ae24c523e67d1221bba9b1a/files/mp/public/6ae24c523e67d1221bba9b1a/10f317cc7_coinexa-showreel.mp4
+          NewpersonalAgent.mp4 https://media.base44.com/videos/public/6ae24c523e67d1221bba9b1a/0f0ebaab5_NewpersonalAgent.mp4
+          video4.mp4 https://media.base44.com/videos/public/6ae24c523e67d1221bba9b1a/75080e433_video4.mp4
+          hero-sphere.png https://static.wixstatic.com/media/12d367_4f26ccd17f8f4e3a8958306ea08c2332~mv2.png
+          EOF
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public/media
+          git diff --cached --quiet && { echo "No changes"; exit 0; }
+          git commit -m "Self-host Coinexa media copied from Base44"
+          git push origin HEAD:stage-2/build

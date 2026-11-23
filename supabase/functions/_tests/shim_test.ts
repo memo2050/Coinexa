@@ -1,5 +1,5 @@
 // Unit tests for the Base44 → Supabase translation layer and the AI adapter.
-// Run: cd supabase/functions && deno test --no-check -A tests/
+// Run: cd supabase/functions && deno test --no-check -A _tests/
 import { deepStrictEqual } from 'node:assert';
 const assertEquals = (a: unknown, b: unknown) => deepStrictEqual(a, b);
 async function assertRejects(fn: () => Promise<unknown>, _type: unknown, text: string) {
