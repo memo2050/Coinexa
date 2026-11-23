@@ -5,9 +5,10 @@
 | Status | **Draft for owner review.** No implementation starts until the owner approves this plan in writing. |
 | Prepared | 2026-11-23 |
 | Revision 2 | 2026-11-23 — owner decision: **no legacy user import**; everyone signs up new with email or Google (§3.3 rewritten, §3.1/3.2, phases 2/3/11, R2, R14, Q2, Q10 updated) |
+| Revision 3 | 2026-11-23 — owner decision: **no legacy data import at all, fresh start.** The new system starts empty; nothing is copied from Base44 (§0.2, §3, §4.2 #9, §4.4, §4.5, phases 2/3/11, risks R1–R3, questions updated) |
 | Branch | `stage-1/migration-plan` (branched from `main` @ `9162c32`, tag `base44-original`). Not merged into `main`. |
 | Inputs inspected | `main` (Base44 export), `stage-0/baseline-screenshots` (`docs/stage-0/README.md`), `stage0-reference` (another session's reference screenshots + capture tools) |
-| Not available | The 9 CSV exports (see §0.2). |
+| Not needed | The 9 CSV exports — no data is imported (§0.2). |
 
 Every statement below is either verified in the repository (file paths given) or marked
 **UNVERIFIED** / **QUESTION**. Open questions are collected in §8.
@@ -29,23 +30,15 @@ Every statement below is either verified in the repository (file paths given) or
 | Connectors | — | 1 (`gmail`, scope `email`) — defined, **never called by any function** | `base44/connectors/gmail.jsonc`, `shared/emailPolicy.ts` |
 | Backend code size | — | ~5,800 lines in functions + shared | `wc -l` |
 
-### 0.2 The 9 CSV exports — not available in this session
+### 0.2 Existing data — not migrated (fresh start)
 
-The CSVs are **not in any branch** and were **not uploaded to this session**. The `stage0-reference`
-branch (made by a different session) contains `reference/capture-tools/csv2json.py`, which shows the
-exports were named `*-<Entity>_export.csv` for exactly these 9 entities:
+Owner decision (Revision 3): **no data is imported from Base44.** The new system starts with
+empty tables and new accounts. The 9 CSV exports are therefore not needed for the migration.
 
-`Agent, AgentTask, AgentUpload, AuditLog, Inquiry, Organization, OrganizationMember, ResearchReport, UsageRecord`
-
-So the CSV → table mapping in §3.2 is **one file per entity** and is reliable at the table level.
-**UNVERIFIED** until the files are provided: the exact column headers (in particular which Base44
-system columns are present — `id`, `created_date`, `updated_date`, `created_by_id`, `created_by`,
-others), row counts, date format, and how arrays/objects are serialised (the script parsed JSON
-in cells that start with `[` or `{`). There is **no `User` export**, and none is needed: users
-sign up again as new accounts (§3.3).
-
-Live row counts seen in Stage 0 (admin console, 2026-11-23, not from CSVs): 18 agents, 14
-executions, 4 accounts, 2 workspaces, 9 metered events, ≥12 audit entries, at least 3 (demo) inquiries.
+For the record, what exists in Base44 today and will **not** be carried over (Stage 0, admin
+console, 2026-11-23): 18 agents (3 active, 2 paused, 13 draft), 14 executions, 9 metered events,
+≥12 audit entries, 4 accounts, 2 workspaces, at least 3 (demo) inquiries, and any privately stored
+task attachments / Excel exports. It all stays in Base44, untouched (see R1).
 
 ### 0.3 Stage 0 documents reviewed
 
@@ -158,19 +151,17 @@ approved phase** (Phase 7). Where coinexa.net mail is hosted today is unknown �
 
 ---
 
-## 3. Database and data migration
+## 3. Database (new, empty — no data migration)
 
 ### 3.1 Entity → table mapping
 
 Conventions for every table:
 
-- **IDs are preserved as `text` primary keys.** Base44 IDs are 24-hex strings (e.g. agent
-  `6afb90b93f88a6c310cc809a`, seen in Stage 0 URLs). Keeping them unchanged means every cross
-  reference (`agent_id`, `organization_id`, `task_id`, `target_id`) and every existing URL
-  (`/agents/<id>`) still works. New rows get `gen_random_uuid()::text`.
+- **IDs are `text` primary keys defaulting to `gen_random_uuid()::text`.** The code treats ids as
+  opaque strings (Base44 used 24-hex strings), so text keys need no code change. No old ids exist
+  in the new database; old Base44 links such as `/agents/<old id>` will show "not found".
 - System columns: `created_at` (from `created_date`), `updated_at` (from `updated_date`),
-  `created_by uuid null → auth.users`. Old Base44 user ids are **not imported** (§3.3): user
-  reference columns from the CSVs are dropped during import. The code's 62 uses of `created_date` / 19 of `created_by_id` are kept working by
+  `created_by uuid null → auth.users`. The code's 62 uses of `created_date` / 19 of `created_by_id` are kept working by
   the shim's field mapping (or by naming the columns identically — decided in Phase 2).
 - `string[]` → `text[]`; `object` / `object[]` → `jsonb`; enums → `text` + `CHECK`.
 
@@ -189,69 +180,40 @@ Conventions for every table:
 
 Notes:
 - `organization_id` must stay **nullable** on `agents`, `agent_tasks`, `agent_uploads`,
-  `research_reports`: the Base44 rules explicitly allow "created by me and no workspace", and
-  `bootstrapOwnerWorkspace` exists because such rows existed. After import, a check must confirm
-  how many rows still have no workspace (**UNVERIFIED**, needs CSVs).
-- Some `organization_id` values may be empty strings (`logAudit` writes `''` when unknown —
-  `shared/tenancy.ts`). Import converts `''` → `NULL`; `audit_logs` and `usage_records` need the
-  `NOT NULL` relaxed or a placeholder — decided after seeing the data.
+  `research_reports`: the Base44 rules explicitly allow "created by me and no workspace", and the
+  RLS policies reproduce that rule (§3.4).
+- `logAudit` writes `organization_id: ''` when no workspace is known (`shared/tenancy.ts`, e.g. the
+  Stripe webhook). The port writes `NULL` instead, so `audit_logs.organization_id` and
+  `usage_records.organization_id` are nullable.
 - An "agent deleted" rule must be chosen before FKs are enforced (Q12).
 
-### 3.2 CSV → table mapping
+### 3.2 No data import
 
-| CSV (pattern from `csv2json.py`) | Target table | Import order |
-|---|---|---|
-| `*-Organization_export.csv` | `organizations` | 1 |
-| `*-OrganizationMember_export.csv` | **Not imported.** Every row points to an old Base44 user. Memberships are recreated when people sign up (§3.3). Kept only as a reference for the owner setup step. | — |
-| `*-Agent_export.csv` | `agents` | 2 |
-| `*-AgentTask_export.csv` | `agent_tasks` | 3 |
-| `*-AgentUpload_export.csv` | `agent_uploads` | 4 |
-| `*-ResearchReport_export.csv` | `research_reports` | 5 |
-| `*-UsageRecord_export.csv` | `usage_records` (`user_id` left empty) | 6 |
-| `*-AuditLog_export.csv` | `audit_logs` (`actor_id` left empty; `actor_email` kept as written history) | 7 |
-| `*-Inquiry_export.csv` | `inquiries` | 8 |
-
-Columns holding old Base44 user ids (`created_by_id`, `created_by`, `UsageRecord.user_id`,
-`AuditLog.actor_id`) are **dropped at import**. Everything else, including record ids and
-`organization_id`, is kept unchanged.
-
-Import method (Phase 2, staging project only): load each CSV into a `staging_<entity>` table as
-text, then `INSERT … SELECT` with explicit casts, so a bad cell fails loudly and the raw data is
-kept. Checks after each table: row count equals CSV row count; every FK resolves (or is a
-documented orphan); enum values all within the CHECK lists; JSON columns parse.
+- No CSV import, no file copy, no record ids carried over. Phase 2 creates the schema only.
+- Nothing needs seeding: plan limits (`PLAN_LIMITS` in `shared/tenancy.ts`), the Stripe price
+  catalog (`shared/stripeCatalog.ts`) and the agent wizard catalog (`src/data/`) live in code.
+- **Recommended (owner's choice):** keep a private archive of the Base44 CSV exports and any files
+  you want to keep, outside the repository, before Base44 is ever switched off. It is a record
+  only; it is not loaded into the new system.
+- Agents the owner wants to keep (e.g. Hazel, Nadia, Fadel) are re-created through the normal
+  "Build a new AI Agent" flow after launch, using Base44 as the reference while it is still live.
 
 ### 3.3 Accounts: everyone signs up new
 
-Decision (owner, 2026-11-23): **no legacy user import.** Nobody's Base44 account, password or user
-id is carried over. Everyone, including the owner, signs up fresh with email (password + email
-code) or Google. Old Base44 user ids are dropped at import (§3.2).
+No Base44 account, password, user id or data is carried over. Everyone, including the owner, signs
+up fresh with email (password + email code) or Google.
 
-What this means for the existing data:
-
-1. **Workspaces and their records are kept.** `organizations`, `agents`, `agent_tasks`,
-   `agent_uploads`, `research_reports`, `usage_records`, `audit_logs` and `inquiries` are imported
-   with their original ids and `organization_id`. Workspace membership, not user ids, is the tenant
-   boundary (as today), so the data stays grouped correctly.
-2. **Nobody is attached to an imported workspace automatically.** There's no matching by email
-   and no claim step. A new sign-up gets a brand-new empty workspace, exactly as today's
-   `provisionWorkspace` does for a first-time user.
-3. **One owner setup step** (needs the owner's approval, done once in staging and once in
+1. **Every new sign-up gets its own empty workspace**, exactly as today's `provisionWorkspace`
+   does for a first-time user (starter plan limits, `data_class = test` by default).
+2. **One owner setup step** (needs the owner's approval; done once in staging and once in
    production): after the owner signs up, a single SQL script
    - sets the owner's `profiles.role` to `admin` (Q10),
-   - adds the owner as `owner` member of the internal workspace ("Hossam's workspace"),
-   - sets `created_by` on that workspace's imported agents, runs and reports to the owner, so he can
-     edit and delete them as before (RLS update/delete checks the creator, §3.4),
-   - removes the empty personal workspace the sign-up created, if any.
-   This step adds the owner's new account to existing data. It does not import any old account.
-4. **Other old accounts are not recreated.** Stage 0 showed 3 test accounts with no workspace and
-   one test workspace (`ramyusa2030+tenant-test2's workspace`, 0 agents). Their records, if any,
-   stay readable to the platform admin and attributed only by the stored `actor_email` text.
-   Whether the empty test workspace is imported at all is Q11.
-5. **History attribution:** `audit_logs.actor_email` and `agent_tasks.approvals` (which store
-   names/emails as text) keep showing who did what before migration. `usage_records.user_id` and
-   `audit_logs.actor_id` are empty for old rows. Per-user rate limits start from zero after
-   migration, which is harmless.
-6. The isolation test identity (`tenant-isolation-testing.md`) is created as a **new** account
+   - marks the owner's workspace `internal = true`, `data_class = internal` — what
+     `bootstrapOwnerWorkspace` did in Base44 — so it is exempt from customer plan caps.
+   No data is attached because there is none.
+3. **Invitations** keep working as today: `manageOrganization` invites by email and the invitee is
+   joined on first sign-up with that verified email.
+4. The isolation test identity (`tenant-isolation-testing.md`) is created as a **new** account
    **only in staging**, for Phase 4.
 
 ### 3.4 Row Level Security and tenant isolation
@@ -316,7 +278,7 @@ All become Supabase Edge Functions with identical names unless stated.
 | 6 | adminRuns | Admin: execution list, one full run at a time | — |
 | 7 | adminUsage | Admin: usage/cost with verified rates only | `MODEL_PRICING` gets real rates once provider chosen |
 | 8 | agentWorkflow | Build/save/toggle an agent's workflow graph; owner check; rate-limited | — |
-| 9 | bootstrapOwnerWorkspace | One-off: promote owner workspace to internal, attach orphan records (dry run by default) | Replaced by the import script; keep as admin-only tool or retire — Q11 |
+| 9 | bootstrapOwnerWorkspace | One-off: promote owner workspace to internal, attach orphan records (dry run by default) | **Not ported.** Its only remaining job (mark the owner workspace internal) is done by the owner setup script (§3.3); there are no orphan records in a fresh database |
 | 10 | chatWithAgent | Agent chat preview (LLM), rate-limited | `invokeLLM` |
 | 11 | createCheckoutSession | Stripe Checkout for own workspace; server-owned price catalog | `APP_URL` secret instead of `X-Base44-App-Url` |
 | 12 | exportResearchXlsx | Builds Excel (exceljs) incl. remote images, stores privately, returns signed URL | **CPU-heavy** → risk R7 |
@@ -345,9 +307,9 @@ All become Supabase Edge Functions with identical names unless stated.
 
 ### 4.4 Risks to existing features and data (detail in §6.2)
 
-Highest: attachments/exports stored privately on Base44 may not be exportable (Q3); media hosted on
-`media.base44.com` disappears if Base44 is removed before self-hosting (Q4); run-time limits on
-Edge Functions (R6/R7); research quality changes when the model changes (R9).
+Highest: existing agents, runs, reports and inquiries stay behind in Base44 by decision (R1);
+media hosted on `media.base44.com` disappears if Base44 is removed before self-hosting (Q4);
+run-time limits on Edge Functions (R6/R7); output changes when the AI model changes (R9).
 
 ### 4.5 Stage 0 findings — carried, not fixed
 
@@ -363,8 +325,8 @@ Edge Functions (R6/R7); research quality changes when the model changes (R9).
 | 8 | Header shows Sign In/Sign Up when signed in | Not changed |
 | 9 | Three separate shells (site / inbox / admin) | Not changed |
 | 10 | Two usage pages (`/usage`, `/admin/usage`) | Both ported (functions 7 and 21) |
-| 11 | Temporary/QA artefacts in production (`/security-check`, "QA Probe (delete me)", pending approvals) | Data migrates as-is unless owner says otherwise (Q11) |
-| 12 | Internal workspace holds 18 agents vs limit 3 | Correct today — `internal` workspaces skip caps (`isInternalWorkspace`); `internal = true` must survive the import or the owner workspace becomes blocked |
+| 11 | Temporary/QA artefacts in production (`/security-check`, "QA Probe (delete me)", pending approvals) | Not carried over (fresh start). `/security-check` and `verifyTenantIsolation` are kept only in staging (Q11) |
+| 12 | Internal workspace holds 18 agents vs limit 3 | Correct today: `internal` workspaces skip caps (`isInternalWorkspace`). The owner setup script sets `internal = true` on the new owner workspace, otherwise the owner is capped at 3 agents |
 | 13 | Inbox stat cards show "—" | Not changed |
 | 14 | Agent status differs between `/agents` and `/admin/agents` | Not changed; compare both after migration to confirm the difference is the same, not new |
 
@@ -379,8 +341,8 @@ after the owner approves it; all work is on branches, never directly on `main`.
 | Phase | Work | Acceptance criteria | Rollback |
 |---|---|---|---|
 | **1. Supabase project & DB prep** | Owner creates **staging** project (Free plan fine), region chosen (Q13); repo gets `supabase/` folder (config, migrations) on a branch | Project reachable; keys stored only in Supabase/hosting dashboards, never in git | Delete the staging project; nothing else affected |
-| **2. Schema + CSV import (staging)** | Migrations for 10 tables + helpers; import 8 of the 9 CSVs via staging tables (memberships not imported) | Row counts match CSVs exactly; old user-id columns absent; zero FK violations (or listed orphans); enums valid; JSON parses; IDs unchanged; `internal`/`data_class` preserved | Drop schema and re-run migrations; CSVs are the source, re-importable any time |
-| **3. Auth & profiles** | Supabase Auth (email+OTP, Google, reset) via compat client; profile trigger; owner setup script (§3.3) | Owner signs up in staging; after the setup script he sees exactly his 18 agents/14 runs and can edit them; any other new user gets an empty workspace and sees no other workspace; nobody is linked by email | Revert branch; reset staging auth users |
+| **2. Schema (staging)** | Migrations for the 10 tables, constraints, indexes, helper functions; no data import | Migrations apply cleanly from zero twice in a row; every table, CHECK and index from §3.1 present; tables empty | Drop schema and re-run migrations |
+| **3. Auth & profiles** | Supabase Auth (email+OTP, Google, reset) via compat client; profile trigger; owner setup script (§3.3) | Sign-up by email and by Google both work; each new user gets one empty workspace; owner is admin with an internal workspace after the script; no user sees another workspace | Revert branch; reset staging auth users |
 | **4. RLS & isolation verification** | Policies from §3.4; rebuild the 21-check suite against staging as a non-admin | 21/21 PASS from a non-admin account; admin sees all; anonymous sees nothing except what the published site needs | Policies are migrations — revert; never relax a policy to pass a check |
 | **5. Replace backend functions** | Server shim + port the 22 functions; frontend compat client; remove Base44 SDK/plugin on the branch | Every page in Stage 0 list loads in staging with no console errors; screenshots match baseline; each function returns the same response shape (contract tests per function) | Revert branch; Base44 still runs production |
 | **6. AI integration** | `invokeLLM` adapter with chosen provider (test key, spend cap set by owner) | Agent generation, chat, a 6-step run with approval pause/resume, and one research run all complete; tokens recorded in `usage_records` | Switch adapter to stub; revoke test key |
@@ -388,10 +350,13 @@ after the owner approves it; all work is on branches, never directly on `main`.
 | **8. Stripe test mode** | Test keys, webhook endpoint for staging, checkout for both tiers | Test checkout upgrades the workspace plan via webhook only; admin billing shows "test"; no live keys anywhere | Remove webhook endpoint; delete test secrets |
 | **9. Full functional & security testing** | Regression of all pages and flows; isolation suite; rate limits; webhook signature rejection; secret scan of repo | Test log with pass/fail per item, all pass; owner sign-off | Fix forward on branch; production untouched |
 | **10. Hostinger staging deploy** | Build `dist/`, upload to a **staging subdomain or temporary Hostinger URL** with SPA rewrite | Staging site works end-to-end against the staging Supabase project | Remove the staging site |
-| **11. Production migration & DNS switch** | Production Supabase (Pro); short write-freeze on Base44; fresh final export; re-import; verify; then switch coinexa.net DNS to Hostinger (TTL lowered 24–48 h before) | Counts match the final export; owner signs up, setup script run with his approval; smoke test passes on coinexa.net | Point DNS back to the recorded Base44 values (Base44 still live and untouched, so this is a full rollback); keep Base44 running for an agreed period (≥30 days suggested) |
+| **11. Production launch & DNS switch** | Production Supabase (Pro); migrations applied to the empty production database; owner signs up, setup script run with his approval; smoke test on the Hostinger URL; then switch coinexa.net DNS to Hostinger (TTL lowered 24–48 h before) | All flows pass on coinexa.net; owner is admin; no secrets in the frontend bundle | Point DNS back to the recorded Base44 values (Base44 still live and untouched, so this is a full rollback); keep Base44 running for an agreed period (≥30 days suggested) |
 
-Data written to the new system after cutover would not exist in Base44, so a rollback after real
-use loses that data unless exported first — the rollback window should be short and agreed (Q14).
+No data freeze or final export is needed, because nothing is copied. Accounts and records
+created on the new system after the switch do not exist in Base44, so a DNS rollback leaves them
+behind on the new system (not lost, just not visible on Base44). The rollback window should be
+short and agreed (Q14). Contact-form inquiries that arrive in Base44 before the switch stay in the
+Base44 inbox — handle or note them before switching.
 
 ---
 
@@ -426,9 +391,9 @@ Production ≈ **$25 (Supabase Pro) + $3–8 (hosting) + $0–4 (email) + AI usa
 
 | ID | Type | Risk | Mitigation |
 |---|---|---|---|
-| R1 | Data loss | Private files (task attachments `AgentTask.attachments`, `AgentUpload.file_uri`, `ResearchReport.xlsx_file_uri`) live in Base44 private storage and may not be in the CSVs | Q3: find an export route; otherwise mark these links "unavailable" and keep the text record; Excel files can be regenerated from report data |
-| R2 | Data loss | CSV export incomplete (e.g. missing `organization_id` on some rows) → records not attached to any workspace | Verify CSV headers and empty-workspace rows before Phase 2 (§0.2); rows with no workspace go to the owner's workspace only if the owner approves |
-| R3 | Data loss | Writes in Base44 between export and cutover | Short write-freeze + final export at Phase 11 |
+| R1 | Data | Existing agents, runs, reports, usage history, audit log, inquiries and private files stay in Base44 and are not in the new system (owner decision) | Owner keeps a private archive of exports (§3.2); re-creates the agents he needs; Base44 stays live and untouched until the owner decides otherwise |
+| R2 | Users | Old links (`/agents/<old id>`, bookmarks, links shared with others) stop working after the switch | Acceptable for a fresh start; only the owner used these links |
+| R3 | Data | Inquiries submitted to Base44 just before the switch could be missed | Check the Base44 inbox right before and after the DNS switch |
 | R4 | Deployment | Hosted media on `media.base44.com` breaks when Base44 is removed | Inventory every external media URL (static + runtime), download and self-host before any Base44 shutdown (Q4) |
 | R5 | Security | An RLS mistake exposes other workspaces (browser reads tables directly) | §3.4 rule-for-rule mapping; 21-check suite as non-admin; secret scan; service-role key never in the browser |
 | R6 | Technical | `runAgentTask` runs synchronously up to 150 s; Free plan wall clock is 150 s, Pro 400 s; other request timeouts may apply (**UNVERIFIED**) | Pro plan for production; test long runs in Phase 6; fallback: background task + polling (`WorkflowPanel.jsx` already polls) |
@@ -439,7 +404,7 @@ Production ≈ **$25 (Supabase Pro) + $3–8 (hosting) + $0–4 (email) + AI usa
 | R11 | Deployment | DNS switch breaks email (MX) if records are replaced carelessly | Record all current DNS values first; change only A/CNAME for the website; MX/SPF/DKIM changes as a separate approved step |
 | R12 | Deployment | Supabase Free projects pause after a week idle | Use Free only for staging; production on Pro |
 | R13 | Security | Base44 app identifier, Stripe price IDs and the test-account email are in source (not secrets, but identifying) | Fine to keep; no secret values found in the repo (only names) |
-| R14 | Users | All users must create new accounts; old personal history isn't linked to them | Owner decision; today only the owner has real data. Announce the change. |
+| R14 | Users | Everyone, including the owner, starts with a new account and an empty workspace | Owner decision; today only the owner has real data |
 
 ---
 
@@ -452,9 +417,9 @@ Production ≈ **$25 (Supabase Pro) + $3–8 (hosting) + $0–4 (email) + AI usa
 
 | # | Question |
 |---|---|
-| Q1 | Please attach the 9 CSV exports here so column headers and row counts can be checked against §3 (read only). |
+| Q1 | ~~CSV exports~~ — no longer needed (no data import). Keeping them as a private archive is recommended (§3.2). |
 | Q2 | ~~User export~~ — no longer needed (no legacy user import). |
-| Q3 | Can Base44 export privately stored files (task attachments, generated Excel files)? If not, is it acceptable that those links are marked unavailable? |
+| Q3 | ~~Exporting private files~~ — no longer needed for the migration; keep copies yourself if you want them. |
 | Q4 | Do you have the original logo, favicon and video files, or may they be downloaded from `media.base44.com` (and the one `static.wixstatic.com` asset) for self-hosting? |
 | Q5 | AI provider: Anthropic or OpenAI? (Both can do structured output, attachments and web search.) |
 | Q6 | Where is coinexa.net email hosted today (who handles `hello@coinexa.net`)? Hostinger mailbox SMTP or an email API for sending? |
@@ -462,10 +427,10 @@ Production ≈ **$25 (Supabase Pro) + $3–8 (hosting) + $0–4 (email) + AI usa
 | Q8 | Should the migrated site be public (as now, published) or support a "private / login-only" mode? |
 | Q9 | Keep Google sign-in? Add MFA (the `Mfa` page exists but is not routed)? |
 | Q10 | Confirm the owner's new account will use `ramyusa2030@gmail.com` (email or Google) and is the only platform admin. |
-| Q11 | Migrate QA artefacts ("QA Probe (delete me)", pending approval runs, test accounts, `/security-check`) as-is, or exclude them? |
+| Q11 | Keep `/security-check` and `verifyTenantIsolation` in staging only and leave them out of production (as their own runbook says), or remove them entirely? |
 | Q12 | When an agent is deleted, should its run history stay (recommended) or be deleted with it? |
 | Q13 | Supabase region preference (users mainly in Egypt/Middle East → an EU region such as Frankfurt is likely closest; to confirm). |
-| Q14 | How long should Base44 stay live as the rollback target after cutover (suggested ≥30 days), and how long a write-freeze is acceptable on cutover day? |
+| Q14 | How long should Base44 stay live as the rollback target after the switch (suggested ≥30 days)? |
 
 ## Sources (pricing and limits)
 
