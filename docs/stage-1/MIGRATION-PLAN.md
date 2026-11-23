@@ -4,6 +4,7 @@
 |---|---|
 | Status | **Draft for owner review.** No implementation starts until the owner approves this plan in writing. |
 | Prepared | 2026-11-23 |
+| Revision 2 | 2026-11-23 — owner decision: **no legacy user import**; everyone signs up new with email or Google (§3.3 rewritten, §3.1/3.2, phases 2/3/11, R2, R14, Q2, Q10 updated) |
 | Branch | `stage-1/migration-plan` (branched from `main` @ `9162c32`, tag `base44-original`). Not merged into `main`. |
 | Inputs inspected | `main` (Base44 export), `stage-0/baseline-screenshots` (`docs/stage-0/README.md`), `stage0-reference` (another session's reference screenshots + capture tools) |
 | Not available | The 9 CSV exports (see §0.2). |
@@ -40,7 +41,8 @@ So the CSV → table mapping in §3.2 is **one file per entity** and is reliable
 **UNVERIFIED** until the files are provided: the exact column headers (in particular which Base44
 system columns are present — `id`, `created_date`, `updated_date`, `created_by_id`, `created_by`,
 others), row counts, date format, and how arrays/objects are serialised (the script parsed JSON
-in cells that start with `[` or `{`). There is **no `User` export** in the list (see Q2).
+in cells that start with `[` or `{`). There is **no `User` export**, and none is needed: users
+sign up again as new accounts (§3.3).
 
 Live row counts seen in Stage 0 (admin console, 2026-11-23, not from CSVs): 18 agents, 14
 executions, 4 accounts, 2 workspaces, 9 metered events, ≥12 audit entries, at least 3 (demo) inquiries.
@@ -167,22 +169,22 @@ Conventions for every table:
   reference (`agent_id`, `organization_id`, `task_id`, `target_id`) and every existing URL
   (`/agents/<id>`) still works. New rows get `gen_random_uuid()::text`.
 - System columns: `created_at` (from `created_date`), `updated_at` (from `updated_date`),
-  `created_by uuid null → auth.users`, plus **`legacy_created_by text`** holding the old Base44
-  user id (§3.3). The code's 62 uses of `created_date` / 19 of `created_by_id` are kept working by
+  `created_by uuid null → auth.users`. Old Base44 user ids are **not imported** (§3.3): user
+  reference columns from the CSVs are dropped during import. The code's 62 uses of `created_date` / 19 of `created_by_id` are kept working by
   the shim's field mapping (or by naming the columns identically — decided in Phase 2).
 - `string[]` → `text[]`; `object` / `object[]` → `jsonb`; enums → `text` + `CHECK`.
 
 | Base44 entity (`base44/entities/`) | Table | Key columns and types | Foreign keys | Indexes |
 |---|---|---|---|---|
-| `User` (built-in) | `profiles` | `id uuid PK = auth.users.id`, `email`, `full_name`, `role CHECK (admin,user) default user`, `legacy_base44_id text UNIQUE` | `id → auth.users ON DELETE CASCADE` | `email`, `legacy_base44_id` |
+| `User` (built-in) | `profiles` | `id uuid PK = auth.users.id`, `email`, `full_name`, `role CHECK (admin,user) default user` | `id → auth.users ON DELETE CASCADE` | `email` |
 | `Organization` | `organizations` | `name NOT NULL`, `slug UNIQUE`, `industry`, `size`, `plan CHECK (starter,growth,scale)`, `status CHECK (active,suspended)`, `internal bool`, `data_class CHECK (customer,internal,test) default test`, `stripe_customer_id`, `stripe_subscription_id`, `task_limit_month int`, `agent_limit int`, `seat_limit int`, `concurrent_limit int` | — | `slug`, `stripe_customer_id`, `stripe_subscription_id` |
-| `OrganizationMember` | `organization_members` | `organization_id NOT NULL`, `user_id uuid null`, `legacy_user_id text`, `email NOT NULL`, `full_name`, `member_role CHECK (owner,admin,member)`, `status CHECK (invited,active,removed)`, `joined_at` | `organization_id → organizations`; `user_id → profiles` | `(user_id,status)`, `(email,status)`, `UNIQUE (organization_id, lower(email))` — to verify no duplicates in data first |
+| `OrganizationMember` | `organization_members` | `organization_id NOT NULL`, `user_id uuid null`, `email NOT NULL`, `full_name`, `member_role CHECK (owner,admin,member)`, `status CHECK (invited,active,removed)`, `joined_at` | `organization_id → organizations`; `user_id → profiles` | `(user_id,status)`, `(email,status)`, `UNIQUE (organization_id, lower(email))` |
 | `Agent` | `agents` | `name NOT NULL`, `organization_id`, `specialization`, `industry_key`, `industry`, `business_name`, `business_description`, `tasks`, `responsibilities text[]`, `permissions text[]`, `tone`, `tools text[]`, `role`, `summary`, `goals text[]`, `workflow text[]`, `workflow_graph jsonb`, `workflow_version int`, `workflow_enabled bool default true`, `knowledge_requirements text[]`, `safety_rules text[]`, `system_instructions`, `last_run_status CHECK (succeeded,failed)`, `last_run_at`, `status CHECK (draft,active,paused) default draft` | `organization_id → organizations` (nullable; see note) | `organization_id`, `created_by`, `status` |
 | `AgentTask` | `agent_tasks` | `execution_id`, `idempotency_key`, `agent_id NOT NULL`, `agent_name`, `organization_id`, `task NOT NULL`, `output`, `status CHECK (queued,running,succeeded,failed,awaiting_approval,cancelled)`, `error`, `steps jsonb`, `approvals jsonb`, `progress numeric`, `current_node`, `awaiting_approval bool`, `workflow_version int`, `warnings text[]`, `attachments text[]`, `attachment_names text[]`, `duration_ms int`, `started_at`, `finished_at` | `agent_id → agents` **ON DELETE SET NULL or no FK** (history must survive agent deletion; `agent_name` is stored for that reason) — Q12 | `(organization_id,status)`, `(organization_id,created_at)`, `agent_id`, `UNIQUE (created_by, idempotency_key) WHERE idempotency_key IS NOT NULL` |
 | `AgentUpload` | `agent_uploads` | `file_uri NOT NULL`, `file_name`, `organization_id` | `organization_id → organizations` | `organization_id` |
 | `ResearchReport` | `research_reports` | `query NOT NULL`, `organization_id`, `market default 'Egypt'`, `suppliers text[]`, `assumptions jsonb`, `products jsonb`, `product_count int`, `overall_confidence CHECK (VERIFIED,PARTIALLY_VERIFIED,ESTIMATED,UNVERIFIED,UNAVAILABLE)`, `sources jsonb`, `limitations text[]`, `summary`, `researched_at`, `agent_id`, `xlsx_file_uri`, `xlsx_generated_at` | `organization_id → organizations`; `agent_id → agents ON DELETE SET NULL` | `organization_id`, `agent_id` |
-| `UsageRecord` | `usage_records` | `organization_id NOT NULL`, `user_id uuid null`, `legacy_user_id text`, `agent_id`, `task_id`, `kind CHECK (12 values)`, `units int`, `model`, `input_tokens int null`, `output_tokens int null`, `duration_ms int` | `organization_id → organizations`; `agent_id`, `task_id` **without FK** (meter rows must outlive deleted agents/tasks) | `(user_id,kind,created_at)` (rate limits), `(organization_id,created_at)` |
-| `AuditLog` | `audit_logs` | `organization_id NOT NULL`, `actor_id uuid null`, `legacy_actor_id text`, `actor_email`, `action NOT NULL`, `target_type`, `target_id`, `detail` | none (append-only history) | `(organization_id,created_at)`, `action` |
+| `UsageRecord` | `usage_records` | `organization_id NOT NULL`, `user_id uuid null`, `agent_id`, `task_id`, `kind CHECK (12 values)`, `units int`, `model`, `input_tokens int null`, `output_tokens int null`, `duration_ms int` | `organization_id → organizations`; `agent_id`, `task_id` **without FK** (meter rows must outlive deleted agents/tasks) | `(user_id,kind,created_at)` (rate limits), `(organization_id,created_at)` |
+| `AuditLog` | `audit_logs` | `organization_id NOT NULL`, `actor_id uuid null`, `actor_email`, `action NOT NULL`, `target_type`, `target_id`, `detail` | none (append-only history) | `(organization_id,created_at)`, `action` |
 | `Inquiry` | `inquiries` | `name NOT NULL`, `email NOT NULL`, `service`, `message NOT NULL`, `status CHECK (new,in_review,contacted,closed)`, `reference UNIQUE`, `submitted_at`, `studio_notified_at`, `studio_notify_status`, `visitor_ack_status`, `visitor_ack_at` | — | `status`, `submitted_at` |
 
 Notes:
@@ -200,49 +202,57 @@ Notes:
 | CSV (pattern from `csv2json.py`) | Target table | Import order |
 |---|---|---|
 | `*-Organization_export.csv` | `organizations` | 1 |
-| *(no CSV)* User | `legacy_users` staging table built from Q2 answer | 2 |
-| `*-OrganizationMember_export.csv` | `organization_members` | 3 |
-| `*-Agent_export.csv` | `agents` | 4 |
-| `*-AgentTask_export.csv` | `agent_tasks` | 5 |
-| `*-AgentUpload_export.csv` | `agent_uploads` | 6 |
-| `*-ResearchReport_export.csv` | `research_reports` | 7 |
-| `*-UsageRecord_export.csv` | `usage_records` | 8 |
-| `*-AuditLog_export.csv` | `audit_logs` | 9 |
-| `*-Inquiry_export.csv` | `inquiries` | 10 |
+| `*-OrganizationMember_export.csv` | **Not imported.** Every row points to an old Base44 user. Memberships are recreated when people sign up (§3.3). Kept only as a reference for the owner setup step. | — |
+| `*-Agent_export.csv` | `agents` | 2 |
+| `*-AgentTask_export.csv` | `agent_tasks` | 3 |
+| `*-AgentUpload_export.csv` | `agent_uploads` | 4 |
+| `*-ResearchReport_export.csv` | `research_reports` | 5 |
+| `*-UsageRecord_export.csv` | `usage_records` (`user_id` left empty) | 6 |
+| `*-AuditLog_export.csv` | `audit_logs` (`actor_id` left empty; `actor_email` kept as written history) | 7 |
+| `*-Inquiry_export.csv` | `inquiries` | 8 |
+
+Columns holding old Base44 user ids (`created_by_id`, `created_by`, `UsageRecord.user_id`,
+`AuditLog.actor_id`) are **dropped at import**. Everything else, including record ids and
+`organization_id`, is kept unchanged.
 
 Import method (Phase 2, staging project only): load each CSV into a `staging_<entity>` table as
 text, then `INSERT … SELECT` with explicit casts, so a bad cell fails loudly and the raw data is
 kept. Checks after each table: row count equals CSV row count; every FK resolves (or is a
 documented orphan); enum values all within the CHECK lists; JSON columns parse.
 
-### 3.3 Preserving ownership when accounts are recreated
+### 3.3 Accounts: everyone signs up new
 
-Agreed: users sign up again; old Base44 passwords are not migrated. The old user ids still appear
-in the data: `created_by_id` (all entities), `OrganizationMember.user_id`, `UsageRecord.user_id`,
-`AuditLog.actor_id`.
+Decision (owner, 2026-11-23): **no legacy user import.** Nobody's Base44 account, password or user
+id is carried over. Everyone, including the owner, signs up fresh with email (password + email
+code) or Google. Old Base44 user ids are dropped at import (§3.2).
 
-1. **Import keeps old ids, unlinked.** Every old user reference goes into a `legacy_*` text column;
-   the new `uuid` column (`created_by`, `user_id`, `actor_id`) starts `NULL`.
-2. **A `legacy_users` table** maps old id → email → old role. Sources: a Base44 user export if
-   available (Q2); otherwise built from `OrganizationMember (user_id, email)` and
-   `AuditLog (actor_id, actor_email)`, which together cover every account that did anything.
-   The 4 known accounts are listed on the admin Customers page (Stage 0, not committed).
-3. **Claim on verified sign-up.** When a new account verifies its email, a server-side step
-   (database trigger or the first `manageOrganization` bootstrap call) looks up `legacy_users` by
-   **verified** email and, in one transaction:
-   - writes `profiles.legacy_base44_id` and copies `role` (only `admin` for the owner account — Q10),
-   - sets `organization_members.user_id` where `legacy_user_id` matches,
-   - back-fills `created_by` / `user_id` / `actor_id` on all rows with that legacy id.
-   This matches today's invitation-claim logic in `provisionWorkspace` (claims by email), so
-   behaviour stays familiar. Claiming happens once; a `UNIQUE` on `legacy_base44_id` prevents two
-   accounts claiming the same history.
-4. **Workspace membership, not user ids, is the tenant boundary** (as today). So even before a
-   user claims their history, their workspace's records are protected and complete; the claim only
-   restores "created by" edit rights and audit attribution.
-5. **Accounts nobody re-creates** (e.g. test accounts) stay unlinked; their history remains
-   readable to platform admins and attributed by stored email.
-6. The isolation test identity (`ramyusa2030+tenant-test2@gmail.com`, per
-   `shared/tenant-isolation-testing.md`) is re-created **only in staging**.
+What this means for the existing data:
+
+1. **Workspaces and their records are kept.** `organizations`, `agents`, `agent_tasks`,
+   `agent_uploads`, `research_reports`, `usage_records`, `audit_logs` and `inquiries` are imported
+   with their original ids and `organization_id`. Workspace membership, not user ids, is the tenant
+   boundary (as today), so the data stays grouped correctly.
+2. **Nobody is attached to an imported workspace automatically.** There's no matching by email
+   and no claim step. A new sign-up gets a brand-new empty workspace, exactly as today's
+   `provisionWorkspace` does for a first-time user.
+3. **One owner setup step** (needs the owner's approval, done once in staging and once in
+   production): after the owner signs up, a single SQL script
+   - sets the owner's `profiles.role` to `admin` (Q10),
+   - adds the owner as `owner` member of the internal workspace ("Hossam's workspace"),
+   - sets `created_by` on that workspace's imported agents, runs and reports to the owner, so he can
+     edit and delete them as before (RLS update/delete checks the creator, §3.4),
+   - removes the empty personal workspace the sign-up created, if any.
+   This step adds the owner's new account to existing data. It does not import any old account.
+4. **Other old accounts are not recreated.** Stage 0 showed 3 test accounts with no workspace and
+   one test workspace (`ramyusa2030+tenant-test2's workspace`, 0 agents). Their records, if any,
+   stay readable to the platform admin and attributed only by the stored `actor_email` text.
+   Whether the empty test workspace is imported at all is Q11.
+5. **History attribution:** `audit_logs.actor_email` and `agent_tasks.approvals` (which store
+   names/emails as text) keep showing who did what before migration. `usage_records.user_id` and
+   `audit_logs.actor_id` are empty for old rows. Per-user rate limits start from zero after
+   migration, which is harmless.
+6. The isolation test identity (`tenant-isolation-testing.md`) is created as a **new** account
+   **only in staging**, for Phase 4.
 
 ### 3.4 Row Level Security and tenant isolation
 
@@ -331,7 +341,7 @@ All become Supabase Edge Functions with identical names unless stated.
 | Password reset | Supabase reset email → existing `/reset-password` page | Same page |
 | `User.role` admin/user | `profiles.role`, admin assigned only via SQL by the owner | — |
 | `organization_ids` array synced by server | membership checked live in RLS | — (simpler, no sync race) |
-| Existing sessions | All users sign in again (agreed: accounts recreated) | **Yes — one-time re-registration** |
+| Existing accounts | Not carried over. Everyone signs up new with email or Google (owner decision) | **Yes — everyone creates a new account**; only the owner is attached to the existing workspace (§3.3) |
 
 ### 4.4 Risks to existing features and data (detail in §6.2)
 
@@ -369,8 +379,8 @@ after the owner approves it; all work is on branches, never directly on `main`.
 | Phase | Work | Acceptance criteria | Rollback |
 |---|---|---|---|
 | **1. Supabase project & DB prep** | Owner creates **staging** project (Free plan fine), region chosen (Q13); repo gets `supabase/` folder (config, migrations) on a branch | Project reachable; keys stored only in Supabase/hosting dashboards, never in git | Delete the staging project; nothing else affected |
-| **2. Schema + CSV import (staging)** | Migrations for 10 tables + `legacy_users` + helpers; import 9 CSVs via staging tables | Row counts match CSVs exactly; zero FK violations (or listed orphans); enums valid; JSON parses; IDs unchanged; `internal`/`data_class` preserved | Drop schema and re-run migrations; CSVs are the source, re-importable any time |
-| **3. Auth & profiles** | Supabase Auth (email+OTP, Google, reset) via compat client; profile trigger; legacy claim step | Owner signs up in staging, claims old id, sees exactly his 18 agents/14 runs; a new non-legacy user gets a fresh workspace; no other workspace visible | Revert branch; reset staging auth users |
+| **2. Schema + CSV import (staging)** | Migrations for 10 tables + helpers; import 8 of the 9 CSVs via staging tables (memberships not imported) | Row counts match CSVs exactly; old user-id columns absent; zero FK violations (or listed orphans); enums valid; JSON parses; IDs unchanged; `internal`/`data_class` preserved | Drop schema and re-run migrations; CSVs are the source, re-importable any time |
+| **3. Auth & profiles** | Supabase Auth (email+OTP, Google, reset) via compat client; profile trigger; owner setup script (§3.3) | Owner signs up in staging; after the setup script he sees exactly his 18 agents/14 runs and can edit them; any other new user gets an empty workspace and sees no other workspace; nobody is linked by email | Revert branch; reset staging auth users |
 | **4. RLS & isolation verification** | Policies from §3.4; rebuild the 21-check suite against staging as a non-admin | 21/21 PASS from a non-admin account; admin sees all; anonymous sees nothing except what the published site needs | Policies are migrations — revert; never relax a policy to pass a check |
 | **5. Replace backend functions** | Server shim + port the 22 functions; frontend compat client; remove Base44 SDK/plugin on the branch | Every page in Stage 0 list loads in staging with no console errors; screenshots match baseline; each function returns the same response shape (contract tests per function) | Revert branch; Base44 still runs production |
 | **6. AI integration** | `invokeLLM` adapter with chosen provider (test key, spend cap set by owner) | Agent generation, chat, a 6-step run with approval pause/resume, and one research run all complete; tokens recorded in `usage_records` | Switch adapter to stub; revoke test key |
@@ -378,7 +388,7 @@ after the owner approves it; all work is on branches, never directly on `main`.
 | **8. Stripe test mode** | Test keys, webhook endpoint for staging, checkout for both tiers | Test checkout upgrades the workspace plan via webhook only; admin billing shows "test"; no live keys anywhere | Remove webhook endpoint; delete test secrets |
 | **9. Full functional & security testing** | Regression of all pages and flows; isolation suite; rate limits; webhook signature rejection; secret scan of repo | Test log with pass/fail per item, all pass; owner sign-off | Fix forward on branch; production untouched |
 | **10. Hostinger staging deploy** | Build `dist/`, upload to a **staging subdomain or temporary Hostinger URL** with SPA rewrite | Staging site works end-to-end against the staging Supabase project | Remove the staging site |
-| **11. Production migration & DNS switch** | Production Supabase (Pro); short write-freeze on Base44; fresh final export; re-import; verify; then switch coinexa.net DNS to Hostinger (TTL lowered 24–48 h before) | Counts match the final export; owner logs in and claims; smoke test passes on coinexa.net | Point DNS back to the recorded Base44 values (Base44 still live and untouched, so this is a full rollback); keep Base44 running for an agreed period (≥30 days suggested) |
+| **11. Production migration & DNS switch** | Production Supabase (Pro); short write-freeze on Base44; fresh final export; re-import; verify; then switch coinexa.net DNS to Hostinger (TTL lowered 24–48 h before) | Counts match the final export; owner signs up, setup script run with his approval; smoke test passes on coinexa.net | Point DNS back to the recorded Base44 values (Base44 still live and untouched, so this is a full rollback); keep Base44 running for an agreed period (≥30 days suggested) |
 
 Data written to the new system after cutover would not exist in Base44, so a rollback after real
 use loses that data unless exported first — the rollback window should be short and agreed (Q14).
@@ -417,7 +427,7 @@ Production ≈ **$25 (Supabase Pro) + $3–8 (hosting) + $0–4 (email) + AI usa
 | ID | Type | Risk | Mitigation |
 |---|---|---|---|
 | R1 | Data loss | Private files (task attachments `AgentTask.attachments`, `AgentUpload.file_uri`, `ResearchReport.xlsx_file_uri`) live in Base44 private storage and may not be in the CSVs | Q3: find an export route; otherwise mark these links "unavailable" and keep the text record; Excel files can be regenerated from report data |
-| R2 | Data loss | CSV export incomplete (missing system columns like `created_by_id`) → ownership cannot be restored | Verify CSV headers before Phase 2 (§0.2); `organization_id` alone still preserves workspace ownership |
+| R2 | Data loss | CSV export incomplete (e.g. missing `organization_id` on some rows) → records not attached to any workspace | Verify CSV headers and empty-workspace rows before Phase 2 (§0.2); rows with no workspace go to the owner's workspace only if the owner approves |
 | R3 | Data loss | Writes in Base44 between export and cutover | Short write-freeze + final export at Phase 11 |
 | R4 | Deployment | Hosted media on `media.base44.com` breaks when Base44 is removed | Inventory every external media URL (static + runtime), download and self-host before any Base44 shutdown (Q4) |
 | R5 | Security | An RLS mistake exposes other workspaces (browser reads tables directly) | §3.4 rule-for-rule mapping; 21-check suite as non-admin; secret scan; service-role key never in the browser |
@@ -429,7 +439,7 @@ Production ≈ **$25 (Supabase Pro) + $3–8 (hosting) + $0–4 (email) + AI usa
 | R11 | Deployment | DNS switch breaks email (MX) if records are replaced carelessly | Record all current DNS values first; change only A/CNAME for the website; MX/SPF/DKIM changes as a separate approved step |
 | R12 | Deployment | Supabase Free projects pause after a week idle | Use Free only for staging; production on Pro |
 | R13 | Security | Base44 app identifier, Stripe price IDs and the test-account email are in source (not secrets, but identifying) | Fine to keep; no secret values found in the repo (only names) |
-| R14 | Users | All users must re-register | Agreed; announce; claim flow restores history by verified email |
+| R14 | Users | All users must create new accounts; old personal history isn't linked to them | Owner decision; today only the owner has real data. Announce the change. |
 
 ---
 
@@ -443,7 +453,7 @@ Production ≈ **$25 (Supabase Pro) + $3–8 (hosting) + $0–4 (email) + AI usa
 | # | Question |
 |---|---|
 | Q1 | Please attach the 9 CSV exports here so column headers and row counts can be checked against §3 (read only). |
-| Q2 | Can Base44 export the **User** list (id, email, full_name, role)? Without it, the legacy map is built from memberships and audit entries. |
+| Q2 | ~~User export~~ — no longer needed (no legacy user import). |
 | Q3 | Can Base44 export privately stored files (task attachments, generated Excel files)? If not, is it acceptable that those links are marked unavailable? |
 | Q4 | Do you have the original logo, favicon and video files, or may they be downloaded from `media.base44.com` (and the one `static.wixstatic.com` asset) for self-hosting? |
 | Q5 | AI provider: Anthropic or OpenAI? (Both can do structured output, attachments and web search.) |
@@ -451,7 +461,7 @@ Production ≈ **$25 (Supabase Pro) + $3–8 (hosting) + $0–4 (email) + AI usa
 | Q7 | Which Hostinger plan do you already have (if any), and is coinexa.net's DNS managed at Hostinger or elsewhere? |
 | Q8 | Should the migrated site be public (as now, published) or support a "private / login-only" mode? |
 | Q9 | Keep Google sign-in? Add MFA (the `Mfa` page exists but is not routed)? |
-| Q10 | Confirm `ramyusa2030@gmail.com` is the only platform admin to restore. |
+| Q10 | Confirm the owner's new account will use `ramyusa2030@gmail.com` (email or Google) and is the only platform admin. |
 | Q11 | Migrate QA artefacts ("QA Probe (delete me)", pending approval runs, test accounts, `/security-check`) as-is, or exclude them? |
 | Q12 | When an agent is deleted, should its run history stay (recommended) or be deleted with it? |
 | Q13 | Supabase region preference (users mainly in Egypt/Middle East → an EU region such as Frankfurt is likely closest; to confirm). |
