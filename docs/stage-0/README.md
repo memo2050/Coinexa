@@ -53,8 +53,45 @@ Base44 was changed, no forms were submitted, no accounts were created.
    file, probably left over; worth confirming.
 7. **Legal pages** contain a visible "REQUIRES LEGAL REVIEW" notice.
 
-## Still to capture (needs the owner signed in)
+## Signed-in pages (captured 2026-11-23, owner account, view only)
 
-`/agents`, `/agents/new`, `/agents/:id`, `/tasks`, `/inbox`, `/usage`, `/security-check`,
-`/billing/success`, and the admin area: `/admin`, `/admin/agents`, `/admin/runs`,
-`/admin/usage`, `/admin/customers`, `/admin/billing`, `/admin/reports`, `/admin/activity`.
+Nothing was clicked that changes data: no run, activate, pause, delete, approve, isolation
+check or CSV download.
+
+| # | Page | Desktop | Mobile |
+|---|------|---------|--------|
+| 50 | /agents (agent workspace) | [desktop](screenshots/desktop/50-agents.png) | [mobile](screenshots/mobile/50-agents.png) |
+| 51 | /agents/:id (QA Probe detail, workflow + run panel) | [desktop](screenshots/desktop/51-agent-detail.png) | — |
+| 52 | /agents/new (8-step agent generator, step 1) | [desktop](screenshots/desktop/52-agent-creator.png) | — |
+| 53 | /tasks (task board) | [desktop](screenshots/desktop/53-task-board.png) | [mobile](screenshots/mobile/53-task-board.png) |
+| 54 | /inbox (studio inquiry inbox) | [desktop](screenshots/desktop/54-inbox.png) | — |
+| 55 | /usage (older usage console) | [desktop](screenshots/desktop/55-usage.png) | — |
+| 56 | /security-check (temporary isolation check) | [desktop](screenshots/desktop/56-security-check.png) | — |
+| 60 | /admin overview | [desktop](screenshots/desktop/60-admin-overview.png) | [mobile](screenshots/mobile/60-admin-overview.png) |
+| 61 | /admin/agents | [desktop](screenshots/desktop/61-admin-agents.png) | — |
+| 62 | /admin/runs (executions) | [desktop](screenshots/desktop/62-admin-executions.png) | — |
+| 63 | /admin/usage | [desktop](screenshots/desktop/63-admin-usage.png) | — |
+| 64 | /admin/customers | not committed (shows other people's names and emails) | — |
+| 65 | /admin/billing (Stripe test mode) | [desktop](screenshots/desktop/65-admin-billing.png) | — |
+| 66 | /admin/reports | [desktop](screenshots/desktop/66-admin-reports.png) | — |
+| 67 | /admin/activity | [desktop](screenshots/desktop/67-admin-activity.png) | [mobile](screenshots/mobile/67-admin-activity.png) |
+
+Not captured: `/billing/success` (only reached after a Stripe checkout).
+
+### Observations from the signed-in area
+
+8. **Header ignores sign-in state.** Signed-in pages still show "Sign In" / "Sign Up" in the
+   top bar; there is no account menu or sign-out on the main site (only on /inbox and /admin).
+9. **Three different shells.** The main site header, the /inbox header (email + Site + Sign out)
+   and the /admin sidebar (mobile: tab strip + Exit) are separate layouts.
+10. **Two usage pages.** `/usage` (older) and `/admin/usage` (newer) overlap; `/admin/usage`
+    links back to the old one.
+11. **Temporary / QA artefacts live in production:** `/security-check` ("Temporary"), the
+    "QA Probe (delete me)" agent, and pending approval runs.
+12. **Data snapshot:** 18 agents (3 active, 2 paused, 13 draft; 11 without a workflow),
+    14 executions, 4 accounts, 2 workspaces, Stripe in test mode with 2 plans
+    ($25 Agent Sprint, $50 Studio Retainer), no subscriptions. Workspace plan limit says
+    3 agents but the workspace holds 18.
+13. **Inbox stats cards show "—"** while the list below has demo inquiries.
+14. **Agent statuses disagree:** /agents shows Fadel as "Failed" and Hazel as "Idle";
+    /admin/agents shows both as "active".
