@@ -1,7 +1,7 @@
 import { Play } from 'lucide-react';
 
 const DEMO_VIDEO =
-  'https://media.base44.com/videos/public/6ae24c523e67d1221bba9b1a/0f0ebaab5_NewpersonalAgent.mp4';
+  '/media/NewpersonalAgent.mp4';
 
 export default function AgentDemoVideo() {
   return (

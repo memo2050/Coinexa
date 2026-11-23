@@ -23,7 +23,7 @@ export default function Home() {
         <AgentsSection />
         <Portfolio />
         <Process />
-        <ShowcaseVideo src="https://base44.app/api/apps/6ae24c523e67d1221bba9b1a/files/mp/public/6ae24c523e67d1221bba9b1a/10f317cc7_coinexa-showreel.mp4" />
+        <ShowcaseVideo src="/media/coinexa-showreel.mp4" />
         <Pricing />
         <About />
         <Testimonials />

@@ -3,7 +3,7 @@ import { Mic, Sparkles, Volume2, VolumeX } from 'lucide-react';
 import { Image } from '@/components/ui/image';
 
 const SHOWCASE_LOGO =
-  'https://base44.app/api/apps/6ae24c523e67d1221bba9b1a/files/mp/public/6ae24c523e67d1221bba9b1a/661246468_coinexa-logo.png';
+  '/media/coinexa-logo.png';
 
 const TONES = ['Professional', 'Friendly', 'Confident', 'Cinematic'];
 const SPEAKERS = ['Nova', 'Atlas', 'Iris', 'Orion'];

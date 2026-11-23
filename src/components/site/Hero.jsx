@@ -5,10 +5,10 @@ import HeroVideo from '@/components/site/HeroVideo';
 import { hero } from '@/data/site';
 
 const HERO_ORB =
-  'https://media.base44.com/images/public/6ae24c523e67d1221bba9b1a/90ce52eba_generated_image.png';
+  '/media/generated_image.png';
 
 const HERO_VIDEO =
-  'https://media.base44.com/videos/public/6ae24c523e67d1221bba9b1a/75080e433_video4.mp4';
+  '/media/video4.mp4';
 
 const chipPositions = {
   left: 'left-[-4%] top-[16%] sm:left-[-8%]',

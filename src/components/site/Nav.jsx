@@ -5,7 +5,7 @@ import { Image } from '@/components/ui/image';
 import { navLinks } from '@/data/site';
 
 const BRAND_LOGO =
-  'https://base44.app/api/apps/6ae24c523e67d1221bba9b1a/files/mp/public/6ae24c523e67d1221bba9b1a/661246468_coinexa-logo.png';
+  '/media/coinexa-logo.png';
 
 export default function Nav() {
   const [open, setOpen] = useState(false);
