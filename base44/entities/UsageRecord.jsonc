@@ -1,0 +1,122 @@
+{
+  "name": "UsageRecord",
+  "type": "object",
+  "properties": {
+    "organization_id": {
+      "type": "string",
+      "description": "Workspace the usage is billed to"
+    },
+    "user_id": {
+      "type": "string",
+      "description": "User who triggered the usage"
+    },
+    "agent_id": {
+      "type": "string",
+      "description": "Agent that produced the usage"
+    },
+    "task_id": {
+      "type": "string",
+      "description": "Task run the usage belongs to"
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "task_run",
+        "llm_step",
+        "knowledge_read",
+        "chat_reply",
+        "agent_generation",
+        "research_run",
+        "research_recalc",
+        "export_xlsx",
+        "workflow_edit",
+        "task_approval",
+        "org_change",
+        "checkout_attempt"
+      ],
+      "enumColors": [
+        "blue",
+        "purple",
+        "gray",
+        "green",
+        "yellow",
+        "blue",
+        "gray",
+        "purple",
+        "green",
+        "blue",
+        "yellow",
+        "pink"
+      ],
+      "default": "task_run",
+      "description": "Metered operation type"
+    },
+    "units": {
+      "type": "number",
+      "description": "Metered units consumed: for a task_run this is the number of model calls the run actually made"
+    },
+    "model": {
+      "type": "string",
+      "description": "Model label the metered work consumed, e.g. automatic when the platform routing default was used"
+    },
+    "input_tokens": {
+      "type": "number",
+      "description": "Prompt tokens reported by the provider for this operation. Absent when the provider returned no usage data."
+    },
+    "output_tokens": {
+      "type": "number",
+      "description": "Completion tokens reported by the provider for this operation. Absent when the provider returned no usage data."
+    },
+    "duration_ms": {
+      "type": "number",
+      "description": "Wall-clock time of the metered operation"
+    }
+  },
+  "required": [
+    "organization_id",
+    "kind"
+  ],
+  "rls": {
+    "create": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "read": {
+      "$or": [
+        {
+          "data.organization_id": {
+            "$in": "{{user.data.organization_ids}}"
+          }
+        },
+        {
+          "$and": [
+            {
+              "data.user_id": "{{user.id}}"
+            },
+            {
+              "data.organization_id": {
+                "$in": "{{user.data.organization_ids}}"
+              }
+            }
+          ]
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "update": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

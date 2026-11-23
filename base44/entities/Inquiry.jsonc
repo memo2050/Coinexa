@@ -1,0 +1,87 @@
+{
+  "name": "Inquiry",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Name of the person who submitted the enquiry"
+    },
+    "email": {
+      "type": "string",
+      "description": "Reply-to email address"
+    },
+    "service": {
+      "type": "string",
+      "description": "Service the enquiry is about"
+    },
+    "message": {
+      "type": "string",
+      "description": "Project description submitted by the visitor"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "new",
+        "in_review",
+        "contacted",
+        "closed"
+      ],
+      "default": "new",
+      "description": "Triage state of the enquiry"
+    },
+    "reference": {
+      "type": "string",
+      "description": "Short human readable reference code"
+    },
+    "submitted_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Server timestamp of submission"
+    },
+    "studio_notified_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the studio notification email was accepted for delivery"
+    },
+    "studio_notify_status": {
+      "type": "string",
+      "description": "Delivery outcome of the studio notification email"
+    },
+    "visitor_ack_status": {
+      "type": "string",
+      "description": "Delivery outcome of the visitor acknowledgement email"
+    },
+    "visitor_ack_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the visitor acknowledgement email was accepted for delivery"
+    }
+  },
+  "required": [
+    "name",
+    "email",
+    "message"
+  ],
+  "rls": {
+    "create": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "read": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "update": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

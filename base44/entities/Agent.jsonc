@@ -1,0 +1,226 @@
+{
+  "name": "Agent",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Display name of the AI agent"
+    },
+    "organization_id": {
+      "type": "string",
+      "description": "Workspace the agent belongs to"
+    },
+    "specialization": {
+      "type": "string",
+      "description": "Professional specialization of the agent, e.g. Order Processing Agent"
+    },
+    "industry_key": {
+      "type": "string",
+      "description": "Catalog category key the agent belongs to"
+    },
+    "industry": {
+      "type": "string",
+      "description": "Industry / sector the agent is built for"
+    },
+    "business_name": {
+      "type": "string",
+      "description": "Name of the business the agent works for"
+    },
+    "business_description": {
+      "type": "string",
+      "description": "Plain-language description of the business"
+    },
+    "tasks": {
+      "type": "string",
+      "description": "Tasks the owner wants to automate"
+    },
+    "responsibilities": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Responsibilities selected by the owner"
+    },
+    "permissions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Actions the agent is allowed to take"
+    },
+    "tone": {
+      "type": "string",
+      "description": "Communication style"
+    },
+    "tools": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Tools and integrations connected to the agent"
+    },
+    "role": {
+      "type": "string",
+      "description": "Generated role and identity"
+    },
+    "summary": {
+      "type": "string",
+      "description": "Short description of what the agent does day to day"
+    },
+    "goals": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Generated goals"
+    },
+    "workflow": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Generated ordered workflow steps"
+    },
+    "workflow_graph": {
+      "type": "object",
+      "description": "Visual execution graph: nodes, edges, version and generation metadata"
+    },
+    "workflow_version": {
+      "type": "number",
+      "description": "Version of the workflow graph currently active"
+    },
+    "workflow_enabled": {
+      "type": "boolean",
+      "default": true,
+      "description": "Whether the workflow is active and may execute"
+    },
+    "knowledge_requirements": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Knowledge and data the agent needs"
+    },
+    "safety_rules": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Generated safety and guardrail rules"
+    },
+    "system_instructions": {
+      "type": "string",
+      "description": "Generated system instructions that drive the agent"
+    },
+    "last_run_status": {
+      "type": "string",
+      "enum": [
+        "succeeded",
+        "failed"
+      ],
+      "description": "Outcome of the most recent task execution"
+    },
+    "last_run_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the agent last executed a task"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "draft",
+        "active",
+        "paused"
+      ],
+      "default": "draft",
+      "description": "Lifecycle state of the agent"
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "rls": {
+    "create": {
+      "$or": [
+        {
+          "data.organization_id": {
+            "$in": "{{user.data.organization_ids}}"
+          }
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "read": {
+      "$or": [
+        {
+          "data.organization_id": {
+            "$in": "{{user.data.organization_ids}}"
+          }
+        },
+        {
+          "$and": [
+            {
+              "created_by_id": "{{user.id}}"
+            },
+            {
+              "data.organization_id": {
+                "$exists": false
+              }
+            }
+          ]
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "update": {
+      "$or": [
+        {
+          "$and": [
+            {
+              "created_by_id": "{{user.id}}"
+            },
+            {
+              "data.organization_id": {
+                "$in": "{{user.data.organization_ids}}"
+              }
+            }
+          ]
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "delete": {
+      "$or": [
+        {
+          "$and": [
+            {
+              "created_by_id": "{{user.id}}"
+            },
+            {
+              "data.organization_id": {
+                "$in": "{{user.data.organization_ids}}"
+              }
+            }
+          ]
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    }
+  }
+}

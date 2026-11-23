@@ -1,0 +1,105 @@
+{
+  "name": "AgentUpload",
+  "type": "object",
+  "properties": {
+    "file_uri": {
+      "type": "string",
+      "description": "Private storage URI of the uploaded file"
+    },
+    "file_name": {
+      "type": "string",
+      "description": "Original file name shown to the owner"
+    },
+    "organization_id": {
+      "type": "string",
+      "description": "Workspace the upload belongs to"
+    }
+  },
+  "required": [
+    "file_uri"
+  ],
+  "rls": {
+    "create": {
+      "$or": [
+        {
+          "data.organization_id": {
+            "$in": "{{user.data.organization_ids}}"
+          }
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "read": {
+      "$or": [
+        {
+          "data.organization_id": {
+            "$in": "{{user.data.organization_ids}}"
+          }
+        },
+        {
+          "$and": [
+            {
+              "created_by_id": "{{user.id}}"
+            },
+            {
+              "data.organization_id": {
+                "$exists": false
+              }
+            }
+          ]
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "update": {
+      "$or": [
+        {
+          "$and": [
+            {
+              "created_by_id": "{{user.id}}"
+            },
+            {
+              "data.organization_id": {
+                "$in": "{{user.data.organization_ids}}"
+              }
+            }
+          ]
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "delete": {
+      "$or": [
+        {
+          "$and": [
+            {
+              "created_by_id": "{{user.id}}"
+            },
+            {
+              "data.organization_id": {
+                "$in": "{{user.data.organization_ids}}"
+              }
+            }
+          ]
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    }
+  }
+}

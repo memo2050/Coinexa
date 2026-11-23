@@ -1,0 +1,67 @@
+{
+  "name": "AuditLog",
+  "type": "object",
+  "properties": {
+    "organization_id": {
+      "type": "string",
+      "description": "Workspace the action happened in"
+    },
+    "actor_id": {
+      "type": "string",
+      "description": "User who performed the action"
+    },
+    "actor_email": {
+      "type": "string",
+      "description": "Email of the actor at the time of the action"
+    },
+    "action": {
+      "type": "string",
+      "description": "Machine-readable action key, e.g. task.completed"
+    },
+    "target_type": {
+      "type": "string",
+      "description": "Entity type the action touched"
+    },
+    "target_id": {
+      "type": "string",
+      "description": "Record id the action touched"
+    },
+    "detail": {
+      "type": "string",
+      "description": "Short human-readable description of the action"
+    }
+  },
+  "required": [
+    "organization_id",
+    "action"
+  ],
+  "rls": {
+    "create": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "read": {
+      "$or": [
+        {
+          "data.actor_id": "{{user.id}}"
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "update": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

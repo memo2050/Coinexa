@@ -1,0 +1,128 @@
+{
+  "name": "Organization",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Workspace / company name"
+    },
+    "slug": {
+      "type": "string",
+      "description": "URL-safe identifier"
+    },
+    "industry": {
+      "type": "string",
+      "description": "Industry the organisation operates in"
+    },
+    "size": {
+      "type": "string",
+      "description": "Team size band, e.g. 1-10"
+    },
+    "plan": {
+      "type": "string",
+      "enum": [
+        "starter",
+        "growth",
+        "scale"
+      ],
+      "enumColors": [
+        "gray",
+        "blue",
+        "purple"
+      ],
+      "default": "starter",
+      "description": "Commercial plan that sets the workspace limits"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "active",
+        "suspended"
+      ],
+      "enumColors": [
+        "green",
+        "red"
+      ],
+      "default": "active",
+      "description": "Whether the workspace may execute agents"
+    },
+    "internal": {
+      "type": "boolean",
+      "default": false,
+      "description": "Coinexa-internal workspace owned by the platform team. Exempt from customer plan caps; never set on a customer workspace."
+    },
+    "data_class": {
+      "type": "string",
+      "enum": [
+        "customer",
+        "internal",
+        "test"
+      ],
+      "enumColors": [
+        "green",
+        "purple",
+        "yellow"
+      ],
+      "default": "test",
+      "description": "How the admin console classifies this workspace. Only 'customer' counts toward production customer and revenue metrics; unset means test."
+    },
+    "stripe_customer_id": {
+      "type": "string",
+      "description": "Stripe customer for this workspace, written only by the payment webhook"
+    },
+    "stripe_subscription_id": {
+      "type": "string",
+      "description": "Active Stripe subscription, written only by the payment webhook"
+    },
+    "task_limit_month": {
+      "type": "number",
+      "description": "Task runs included per calendar month"
+    },
+    "agent_limit": {
+      "type": "number",
+      "description": "Agents the workspace may create"
+    },
+    "seat_limit": {
+      "type": "number",
+      "description": "Members the workspace may hold"
+    },
+    "concurrent_limit": {
+      "type": "number",
+      "description": "Runs allowed at the same time"
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "rls": {
+    "create": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "read": {
+      "$or": [
+        {
+          "id": {
+            "$in": "{{user.data.organization_ids}}"
+          }
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "update": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

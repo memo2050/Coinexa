@@ -1,0 +1,90 @@
+{
+  "name": "OrganizationMember",
+  "type": "object",
+  "properties": {
+    "organization_id": {
+      "type": "string",
+      "description": "Workspace this membership belongs to"
+    },
+    "user_id": {
+      "type": "string",
+      "description": "App user id once the invitation is claimed"
+    },
+    "email": {
+      "type": "string",
+      "description": "Email the invitation was issued to"
+    },
+    "full_name": {
+      "type": "string",
+      "description": "Member name"
+    },
+    "member_role": {
+      "type": "string",
+      "enum": [
+        "owner",
+        "admin",
+        "member"
+      ],
+      "enumColors": [
+        "purple",
+        "blue",
+        "gray"
+      ],
+      "default": "member",
+      "description": "Role of the member inside the workspace"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "invited",
+        "active",
+        "removed"
+      ],
+      "enumColors": [
+        "yellow",
+        "green",
+        "red"
+      ],
+      "default": "invited",
+      "description": "Invitation or membership state"
+    },
+    "joined_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the member joined"
+    }
+  },
+  "required": [
+    "organization_id",
+    "email"
+  ],
+  "rls": {
+    "create": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "read": {
+      "$or": [
+        {
+          "data.user_id": "{{user.id}}"
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "update": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

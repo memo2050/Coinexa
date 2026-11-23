@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+Disallow: /inbox
+Disallow: /agents
+Disallow: /admin
+Disallow: /security-check
+Disallow: /billing
+
+Sitemap: https://coinexa.net/sitemap.xml

@@ -1,0 +1,175 @@
+{
+  "name": "ResearchReport",
+  "type": "object",
+  "properties": {
+    "query": {
+      "type": "string",
+      "description": "The product or category that was researched"
+    },
+    "organization_id": {
+      "type": "string",
+      "description": "Workspace the report belongs to"
+    },
+    "market": {
+      "type": "string",
+      "description": "Market the research targets",
+      "default": "Egypt"
+    },
+    "suppliers": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Supplier platforms in scope"
+    },
+    "assumptions": {
+      "type": "object",
+      "description": "Expense assumptions used by the profit engine"
+    },
+    "products": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      },
+      "description": "Verified product findings with profit, score and evidence"
+    },
+    "product_count": {
+      "type": "number",
+      "description": "How many products met the evidence standard"
+    },
+    "overall_confidence": {
+      "type": "string",
+      "enum": [
+        "VERIFIED",
+        "PARTIALLY_VERIFIED",
+        "ESTIMATED",
+        "UNVERIFIED",
+        "UNAVAILABLE"
+      ],
+      "description": "Weakest link across the returned products"
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      },
+      "description": "Every page the research actually opened"
+    },
+    "limitations": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "What could not be established and why"
+    },
+    "summary": {
+      "type": "string",
+      "description": "Short plain-language summary of the findings"
+    },
+    "researched_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When this research run finished"
+    },
+    "agent_id": {
+      "type": "string",
+      "description": "Research agent that produced the report"
+    },
+    "xlsx_file_uri": {
+      "type": "string",
+      "description": "Private storage URI of the generated Excel export"
+    },
+    "xlsx_generated_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the Excel export was generated"
+    }
+  },
+  "required": [
+    "query"
+  ],
+  "rls": {
+    "create": {
+      "$or": [
+        {
+          "data.organization_id": {
+            "$in": "{{user.data.organization_ids}}"
+          }
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "read": {
+      "$or": [
+        {
+          "data.organization_id": {
+            "$in": "{{user.data.organization_ids}}"
+          }
+        },
+        {
+          "$and": [
+            {
+              "created_by_id": "{{user.id}}"
+            },
+            {
+              "data.organization_id": {
+                "$exists": false
+              }
+            }
+          ]
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "update": {
+      "$or": [
+        {
+          "$and": [
+            {
+              "created_by_id": "{{user.id}}"
+            },
+            {
+              "data.organization_id": {
+                "$in": "{{user.data.organization_ids}}"
+              }
+            }
+          ]
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "delete": {
+      "$or": [
+        {
+          "$and": [
+            {
+              "created_by_id": "{{user.id}}"
+            },
+            {
+              "data.organization_id": {
+                "$in": "{{user.data.organization_ids}}"
+              }
+            }
+          ]
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    }
+  }
+}

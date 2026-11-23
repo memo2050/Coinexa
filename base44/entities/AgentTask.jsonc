@@ -1,0 +1,204 @@
+{
+  "name": "AgentTask",
+  "type": "object",
+  "properties": {
+    "execution_id": {
+      "type": "string",
+      "description": "Unique, human readable execution ID for this run"
+    },
+    "idempotency_key": {
+      "type": "string",
+      "description": "Submission key from the client; a retried or double submission with the same key returns the run it already created instead of starting a second one"
+    },
+    "agent_id": {
+      "type": "string",
+      "description": "Agent that executed the task"
+    },
+    "agent_name": {
+      "type": "string",
+      "description": "Agent name at execution time"
+    },
+    "organization_id": {
+      "type": "string",
+      "description": "Workspace the run is metered to"
+    },
+    "task": {
+      "type": "string",
+      "description": "The instruction the owner submitted"
+    },
+    "output": {
+      "type": "string",
+      "description": "Result produced by the agent"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "queued",
+        "running",
+        "succeeded",
+        "failed",
+        "awaiting_approval",
+        "cancelled"
+      ],
+      "default": "queued",
+      "description": "Execution state of this task"
+    },
+    "error": {
+      "type": "string",
+      "description": "Failure reason when execution does not complete"
+    },
+    "steps": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      },
+      "description": "Node-by-node execution state of the workflow run"
+    },
+    "approvals": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      },
+      "description": "Audit trail of human approval decisions: who decided, what, when and why"
+    },
+    "progress": {
+      "type": "number",
+      "description": "Percentage of workflow nodes that have finished"
+    },
+    "current_node": {
+      "type": "string",
+      "description": "Node currently executing or waiting"
+    },
+    "awaiting_approval": {
+      "type": "boolean",
+      "description": "Whether the run is paused on a human approval step"
+    },
+    "workflow_version": {
+      "type": "number",
+      "description": "Workflow version this run executed"
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Steps that were skipped or executed with limitations"
+    },
+    "attachments": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Private file URIs supplied as input"
+    },
+    "attachment_names": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Original file names of the inputs"
+    },
+    "duration_ms": {
+      "type": "number",
+      "description": "Execution time in milliseconds"
+    },
+    "started_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When execution started"
+    },
+    "finished_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When execution finished"
+    }
+  },
+  "required": [
+    "agent_id",
+    "task"
+  ],
+  "rls": {
+    "create": {
+      "$or": [
+        {
+          "data.organization_id": {
+            "$in": "{{user.data.organization_ids}}"
+          }
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "read": {
+      "$or": [
+        {
+          "data.organization_id": {
+            "$in": "{{user.data.organization_ids}}"
+          }
+        },
+        {
+          "$and": [
+            {
+              "created_by_id": "{{user.id}}"
+            },
+            {
+              "data.organization_id": {
+                "$exists": false
+              }
+            }
+          ]
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "update": {
+      "$or": [
+        {
+          "$and": [
+            {
+              "created_by_id": "{{user.id}}"
+            },
+            {
+              "data.organization_id": {
+                "$in": "{{user.data.organization_ids}}"
+              }
+            }
+          ]
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "delete": {
+      "$or": [
+        {
+          "$and": [
+            {
+              "created_by_id": "{{user.id}}"
+            },
+            {
+              "data.organization_id": {
+                "$in": "{{user.data.organization_ids}}"
+              }
+            }
+          ]
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    }
+  }
+}
