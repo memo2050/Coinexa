@@ -81,5 +81,5 @@ jobs:
             }
             (await import("node:fs")).writeFileSync("/tmp/stripe.env", out.join("\n") + "\n");
           '
-          supabase secrets set --project-ref "$SUPABASE_PROJECT_REF" --env-file /tmp/stripe.env
+          supabase secrets set --remote="$SUPABASE_PROJECT_REF" --yes --env-file /tmp/stripe.env
           rm -f /tmp/stripe.env

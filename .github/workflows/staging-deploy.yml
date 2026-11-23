@@ -92,13 +92,13 @@ jobs:
 
       - name: Database migrations
         if: ${{ env.SUPABASE_ACCESS_TOKEN != '' && env.SUPABASE_DB_PASSWORD != '' }}
-        run: supabase db push --password "$SUPABASE_DB_PASSWORD" --include-all
+        run: supabase db push --remote --password "$SUPABASE_DB_PASSWORD" --include-all --yes
 
       - name: Auth settings (site URL, email codes, Google, SMTP)
         if: ${{ env.SUPABASE_ACCESS_TOKEN != '' && env.STAGING_HOST != '' && env.RESEND_API_KEY != '' && env.GOOGLE_CLIENT_ID != '' }}
         run: |
           sed -i "s/__SITE_HOST__/${STAGING_HOST}/g" supabase/config.toml
-          supabase config push --project-ref "$SUPABASE_PROJECT_REF" --yes
+          supabase config push --remote="$SUPABASE_PROJECT_REF" --yes
 
       - name: Function secrets
         if: ${{ env.SUPABASE_ACCESS_TOKEN != '' && env.SUPABASE_DB_PASSWORD != '' }}
@@ -115,18 +115,18 @@ jobs:
             [ -n "$STRIPE_SECRET_KEY" ] && echo "STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY}"
             true
           } > "$f"
-          supabase secrets set --project-ref "$SUPABASE_PROJECT_REF" --env-file "$f"
+          supabase secrets set --remote="$SUPABASE_PROJECT_REF" --yes --env-file "$f"
           rm -f "$f"
 
       - name: Deploy functions
         if: ${{ env.SUPABASE_ACCESS_TOKEN != '' && env.SUPABASE_DB_PASSWORD != '' }}
-        run: supabase functions deploy --project-ref "$SUPABASE_PROJECT_REF" --use-api
+        run: supabase functions deploy --remote="$SUPABASE_PROJECT_REF" --use-api --jobs 4 --yes
 
       - name: Build website
         if: ${{ env.SUPABASE_ACCESS_TOKEN != '' && env.SUPABASE_DB_PASSWORD != '' }}
         run: |
           npm ci
-          ANON=$(supabase projects api-keys --project-ref "$SUPABASE_PROJECT_REF" -o json | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const k=JSON.parse(s);const a=k.find(x=>x.name==='anon')||k.find(x=>x.type==='publishable');process.stdout.write(a.api_key)})")
+          ANON=$(supabase projects api-keys --remote="$SUPABASE_PROJECT_REF" -o json | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const k=JSON.parse(s);const a=k.find(x=>x.name==='anon')||k.find(x=>x.type==='publishable');process.stdout.write(a.api_key)})")
           echo "::add-mask::$ANON"
           VITE_SUPABASE_URL="https://${SUPABASE_PROJECT_REF}.supabase.co" VITE_SUPABASE_ANON_KEY="$ANON" VITE_APP_ID=coinexa-staging npm run build
           # The bundle must never contain a server-side secret.
