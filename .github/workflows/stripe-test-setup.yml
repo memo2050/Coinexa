@@ -34,7 +34,7 @@ jobs:
         run: |
           grep -E '^[A-Z_]+=' deploy/staging.env >> "$GITHUB_ENV"
       - uses: supabase/setup-cli@v1
-        with: { version: latest }
+        with: { version: 3.3.0 }
       - name: Test key only
         run: |
           case "$STRIPE_SECRET_KEY" in sk_test_*|rk_test_*) ;; *) echo "A Stripe TEST key (sk_test_...) is required."; exit 1;; esac

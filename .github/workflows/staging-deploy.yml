@@ -80,7 +80,7 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: npm }
       - uses: supabase/setup-cli@v1
-        with: { version: latest }
+        with: { version: 3.3.0 }
 
       - name: Refuse live Stripe keys
         run: |
