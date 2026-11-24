@@ -12,7 +12,7 @@ Last updated: 24 Nov 2026.
 | Database (11 tables, row-level security, 6 migrations) | Deployed, automatic on every push |
 | 23 server functions (22 ported + `adminAiSpend`) | Deployed, automatic on every push |
 | AI (Anthropic `claude-sonnet-5-5`, $18/month hard stop in code, $20 cap at Anthropic) | Working |
-| Website build | Builds and passes the secret scan on every push; not yet published (needs Hostinger FTP) |
+| Website | Live at https://forward-darkblue-rook-76.hostingersite.com, published automatically on every push |
 | Email (Resend) | Waiting for `RESEND_API_KEY`; sign-up codes and password reset need it |
 | Payments (Stripe test mode) | Waiting for `STRIPE_SECRET_KEY` (test key) |
 | Google sign-in | Optional; the button stays hidden until Google is configured |
@@ -42,7 +42,7 @@ Typical AI test cost: about $0.05 per run, about $0.25 with web-search research.
 
 ## Remaining owner steps (need your accounts)
 
-1. Hostinger FTP for `forward-darkblue-rook-76.hostingersite.com` → GitHub secrets `HOSTINGER_FTP_HOST`, `HOSTINGER_FTP_USER`, `HOSTINGER_FTP_PASSWORD`. The next push then publishes the site.
+1. ~~Hostinger FTP~~ done 24 Nov (host and user in `deploy/staging.env`, password as a GitHub secret).
 2. Resend (free) → `RESEND_API_KEY`. Enables sign-up codes, password reset, enquiry emails.
 3. Stripe test secret key (`sk_test_…`) → `STRIPE_SECRET_KEY`. Then the Stripe test setup creates the test prices and webhook.
 4. Optional: Google OAuth → `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`.
