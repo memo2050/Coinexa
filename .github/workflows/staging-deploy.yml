@@ -149,7 +149,10 @@ jobs:
           ! grep -rqE "service_role|sk_test_|sk_live_|sk-ant-|re_[A-Za-z0-9]{20,}" dist/
 
       - name: Upload to Hostinger (staging site only)
-        if: ${{ env.SUPABASE_ACCESS_TOKEN != '' && env.STAGING_HOST != '' && env.FTP_HOST != '' }}
+        # Host and user are not secret and live in deploy/staging.env; a GitHub secret wins if set.
+        if: ${{ env.SUPABASE_ACCESS_TOKEN != '' && env.STAGING_HOST != '' && env.FTP_PASSWORD != '' && (env.FTP_HOST != '' || env.HOSTINGER_FTP_HOST != '') }}
         run: |
+          FTP_HOST="${FTP_HOST:-$HOSTINGER_FTP_HOST}"; FTP_USER="${FTP_USER:-$HOSTINGER_FTP_USER}"
+          FTP_HOST="${FTP_HOST#ftp://}"
           sudo apt-get update -qq && sudo apt-get install -y -qq lftp
           lftp -u "$FTP_USER","$FTP_PASSWORD" "$FTP_HOST" -e "set ftp:ssl-allow yes; set ssl:verify-certificate no; mirror -R --delete --verbose=1 --exclude-glob .well-known dist/ public_html/; bye"
