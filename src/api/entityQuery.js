@@ -170,7 +170,7 @@ export const COLUMNS = {
   usage_records: new Set(["id","organization_id","user_id","agent_id","task_id","kind","units","model","input_tokens","output_tokens","duration_ms","created_date","updated_date","created_by_id","created_by"]),
   audit_logs: new Set(["id","organization_id","actor_id","actor_email","action","target_type","target_id","detail","created_date","updated_date","created_by_id","created_by"]),
   inquiries: new Set(["id","name","email","service","message","status","reference","submitted_at","studio_notified_at","studio_notify_status","visitor_ack_status","visitor_ack_at","created_date","updated_date","created_by_id","created_by"]),
-  ai_usage: new Set(["id","user_id","organization_id","function_name","model","input_tokens","output_tokens","web_searches","cost_usd","ok","created_date"]),
+  ai_usage: new Set(["id","user_id","organization_id","function_name","model","input_tokens","output_tokens","web_searches","cost_usd","ok","created_date","error"]),
 };
 // END GENERATED COLUMNS
 

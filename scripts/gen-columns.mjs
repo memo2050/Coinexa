@@ -3,9 +3,10 @@
 // columns, the way Base44's schemaless entities did.
 //   node scripts/gen-columns.mjs          → rewrite both copies
 //   node scripts/gen-columns.mjs --check  → exit 1 if either copy is out of date
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, readdirSync } from 'node:fs';
 
-const schema = readFileSync('supabase/migrations/20261123000001_schema.sql', 'utf8');
+const dir = 'supabase/migrations';
+const schema = readdirSync(dir).filter((f) => f.endsWith('.sql')).sort().map((f) => readFileSync(`${dir}/${f}`, 'utf8')).join('\n');
 const columns = {};
 for (const match of schema.matchAll(/create table public\.(\w+) \(\n([\s\S]*?)\n\);/g)) {
   const [, table, body] = match;
@@ -14,6 +15,10 @@ for (const match of schema.matchAll(/create table public\.(\w+) \(\n([\s\S]*?)\n
     .map((line) => line.trim())
     .filter((line) => /^[a-z_][a-z0-9_]* /.test(line) && !/^(constraint|primary|unique|check|foreign)\b/.test(line))
     .map((line) => line.split(/\s+/)[0]);
+}
+
+for (const [, table, column] of schema.matchAll(/alter table public\.(\w+) add column (?:if not exists )?(\w+)/g)) {
+  if (columns[table] && !columns[table].includes(column)) columns[table].push(column);
 }
 
 const block =

@@ -300,9 +300,10 @@ async function main() {
     return r.status === 200 ? `${r.ms} ms` : `status ${r.status} ${JSON.stringify(r.data).slice(0, 200)}`;
   });
   await check('ai', 'every AI call is costed in the ai_usage ledger', async () => {
-    const { data } = await admin.from('ai_usage').select('cost_usd, ok, function_name').in('user_id', [A.id, B.id]);
+    const { data } = await admin.from('ai_usage').select('cost_usd, ok, function_name, model, error').in('user_id', [A.id, B.id]);
     const total = (data || []).reduce((s, r) => s + Number(r.cost_usd || 0), 0);
     if (!data?.length) throw new Error('no ledger rows');
+    for (const r of data.filter((x) => !x.ok)) console.log(`   AI call failed in ${r.function_name} (${r.model}): ${r.error}`);
     return `${data.length} calls, $${total.toFixed(4)} total`;
   });
 }

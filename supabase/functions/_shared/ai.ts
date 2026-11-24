@@ -167,6 +167,7 @@ export function makeInvokeLLM(service: Service) {
     };
 
     let ok = false;
+    let failure = '';
     try {
       // Without web search the structured answer can be forced directly.
       const firstChoice = schema && !args.add_context_from_internet ? { type: 'tool', name: 'submit_result' } : undefined;
@@ -198,6 +199,9 @@ export function makeInvokeLLM(service: Service) {
         }
       }
       throw Object.assign(new Error('The model did not return a final answer.'), { status: 502 });
+    } catch (error) {
+      failure = String((error as Error)?.message || error).slice(0, 500);
+      throw error;
     } finally {
       await ledger(service, {
         model: name,
@@ -206,6 +210,7 @@ export function makeInvokeLLM(service: Service) {
         web_searches: searches,
         cost_usd: Number(costOf(name, inputTokens, outputTokens, searches).toFixed(6)),
         ok,
+        ...(failure ? { error: failure } : {}),
       });
     }
   };
