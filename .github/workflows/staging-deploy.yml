@@ -95,9 +95,17 @@ jobs:
         run: supabase db push --remote --password "$SUPABASE_DB_PASSWORD" --include-all --yes
 
       - name: Auth settings (site URL, email codes, Google, SMTP)
-        if: ${{ env.SUPABASE_ACCESS_TOKEN != '' && env.STAGING_HOST != '' && env.RESEND_API_KEY != '' && env.GOOGLE_CLIENT_ID != '' }}
+        if: ${{ env.SUPABASE_ACCESS_TOKEN != '' && env.STAGING_HOST != '' }}
         run: |
           sed -i "s/__SITE_HOST__/${STAGING_HOST}/g" supabase/config.toml
+          # Resend and Google are optional on staging: without them, Supabase's built-in
+          # mailer sends sign-up codes (to project members only) and the Google button is off.
+          if [ -z "$RESEND_API_KEY" ]; then
+            sed -i '/^\[auth.email.smtp\]/,/^\[/ s/^enabled = true/enabled = false/' supabase/config.toml
+          fi
+          if [ -z "$GOOGLE_CLIENT_ID" ]; then
+            sed -i '/^\[auth.external.google\]/,/^\[/ s/^enabled = true/enabled = false/' supabase/config.toml
+          fi
           supabase config push --remote="$SUPABASE_PROJECT_REF" --yes
 
       - name: Function secrets
