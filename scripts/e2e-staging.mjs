@@ -191,14 +191,22 @@ async function main() {
   });
 
   // ---------------- Storage ----------------
-  await check('storage', 'user uploads a private file to their own folder', async () => {
+  // Browsers may only upload into their own folder; reading back always goes through
+  // the server, which signs a short-lived link (CreateFileSignedUrl), as on Base44.
+  await check('storage', 'user uploads a private file to their own folder; the server can sign it', async () => {
     const path = `${A.id}/e2e-${runId}.txt`;
     const { error } = await A.client.storage.from('private').upload(path, new Blob(['coinexa e2e']), { contentType: 'text/plain' });
     if (error) throw error;
     created.files.push(path);
-    const { data, error: readError } = await A.client.storage.from('private').createSignedUrl(path, 60);
+    const { data, error: readError } = await admin.storage.from('private').createSignedUrl(path, 60);
     if (readError) throw readError;
-    return !!data.signedUrl;
+    const body = await (await fetch(data.signedUrl)).text();
+    return body === 'coinexa e2e';
+  });
+  await check('storage', 'a user cannot upload outside their own folder', async () => {
+    const { error } = await A.client.storage.from('private').upload(`server/e2e-${runId}.txt`, new Blob(['x']));
+    if (!error) created.files.push(`server/e2e-${runId}.txt`);
+    return !!error;
   });
   await check('storage', 'B cannot read or write in A\'s folder', async () => {
     const { data } = await B.client.storage.from('private').download(`${A.id}/e2e-${runId}.txt`);
