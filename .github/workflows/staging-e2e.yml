@@ -1,0 +1,44 @@
+name: Staging end-to-end tests
+
+# Runs when ops/e2e.request changes on stage-2/build (workflow_dispatch needs the
+# workflow on the default branch, which we do not touch). Put "ai" in the file to
+# include the AI features (about $0.05–0.15 per run, inside the $18 budget guard).
+on:
+  push:
+    branches: [stage-2/build]
+    paths: [ops/e2e.request]
+
+concurrency: { group: staging-e2e, cancel-in-progress: false }
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Load staging settings
+        run: grep -E '^[A-Z_]+=' deploy/staging.env >> "$GITHUB_ENV"
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: npm }
+      - run: npm ci --no-audit --no-fund
+      - uses: supabase/setup-cli@v1
+        with: { version: 3.3.0 }
+      - name: Project keys (masked)
+        run: |
+          supabase projects api-keys --remote="$SUPABASE_PROJECT_REF" --reveal -o json > /tmp/keys.json
+          node -e '
+            const k = JSON.parse(require("fs").readFileSync("/tmp/keys.json","utf8"));
+            const pick = (...names) => (k.find((x) => names.includes(x.name)) || k.find((x) => names.includes(x.type)) || {}).api_key;
+            const anon = pick("anon", "publishable"), service = pick("service_role", "secret");
+            if (!anon || !service) { console.error("keys not found"); process.exit(1); }
+            console.log("::add-mask::" + service);
+            const fs = require("fs");
+            fs.appendFileSync(process.env.GITHUB_ENV, `SUPABASE_ANON_KEY=${anon}\nSUPABASE_SERVICE_KEY=${service}\n`);
+          '
+          rm -f /tmp/keys.json
+          echo "SUPABASE_URL=https://${SUPABASE_PROJECT_REF}.supabase.co" >> "$GITHUB_ENV"
+          grep -qi '^ai' ops/e2e.request && echo "E2E_AI=1" >> "$GITHUB_ENV" || true
+      - name: Backend end-to-end checks
+        run: node scripts/e2e-staging.mjs
