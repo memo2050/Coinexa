@@ -102,6 +102,14 @@ jobs:
           # mailer sends sign-up codes (to project members only) and the Google button is off.
           if [ -z "$RESEND_API_KEY" ]; then
             sed -i '/^\[auth.email.smtp\]/,/^\[/ s/^enabled = true/enabled = false/' supabase/config.toml
+            # Free plan: custom templates need custom SMTP, so drop them until Resend is added.
+            python3 - <<'PY'
+          import re
+          p = 'supabase/config.toml'
+          s = open(p).read()
+          s = re.sub(r'^\[auth\.email\.template\.[a-z_]+\]\n(?:[^\[\n].*\n|\n)*', '', s, flags=re.M)
+          open(p, 'w').write(s)
+          PY
           fi
           if [ -z "$GOOGLE_CLIENT_ID" ]; then
             sed -i '/^\[auth.external.google\]/,/^\[/ s/^enabled = true/enabled = false/' supabase/config.toml
