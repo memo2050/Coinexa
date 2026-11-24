@@ -7,6 +7,7 @@ import StatCard from '@/components/admin/StatCard';
 import EmptyState from '@/components/admin/EmptyState';
 import useAdminEndpoint from '@/components/admin/useAdminEndpoint';
 import { fmtNumber } from '@/components/admin/format';
+import AiSpendPanel from '@/components/admin/AiSpendPanel';
 
 const selectClass =
   'rounded-xl border border-white/10 bg-[#05070a]/70 px-3 py-2 text-xs text-slate-200 focus:border-sky-400/60 focus:outline-none';
@@ -176,11 +177,7 @@ export default function AdminUsagePage() {
             )}
           </div>
 
-          <p className="rounded-xl border border-white/[0.07] bg-white/[0.015] px-4 py-3 text-[0.7rem] leading-relaxed text-slate-500">
-            Token counts are only recorded when the AI provider reports them. The platform's current
-            AI integration returns no token usage, so cost stays at “No Rate Configured” until both
-            verified rates and token counts exist.
-          </p>
+          <AiSpendPanel />
 
           <p className="text-[0.7rem] text-slate-500">
             The previous usage console is still available at{' '}

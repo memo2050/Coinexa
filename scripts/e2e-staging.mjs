@@ -233,7 +233,7 @@ async function main() {
   });
 
   // ---------------- Admin functions ----------------
-  const adminFns = ['adminOverview', 'adminAgents', 'adminRuns', 'adminUsage', 'adminCustomers', 'adminBilling', 'adminActivity', 'usageSummary', 'verifyTenantIsolation'];
+  const adminFns = ['adminAiSpend', 'adminOverview', 'adminAgents', 'adminRuns', 'adminUsage', 'adminCustomers', 'adminBilling', 'adminActivity', 'usageSummary', 'verifyTenantIsolation'];
   await check('admin', 'regular users are refused by every admin function', async () => {
     const bad = [];
     for (const fn of adminFns) {

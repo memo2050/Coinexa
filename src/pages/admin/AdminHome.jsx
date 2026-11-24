@@ -9,6 +9,7 @@ import { fmtDate, fmtNumber, fmtPercent } from '@/components/admin/format';
 
 export default function AdminHome() {
   const { data, loading, error, reload } = useAdminEndpoint('adminOverview');
+  const { data: spend } = useAdminEndpoint('adminAiSpend');
 
   return (
     <div className="space-y-6">
@@ -82,10 +83,20 @@ export default function AdminHome() {
               }
             />
             <StatCard
-              label="Estimated AI cost"
-              value={data.cost.rateConfigured ? 'Available' : 'No Rate Configured'}
-              tone="muted"
-              hint={data.cost.note}
+              label={spend ? 'AI spend this month' : 'Estimated AI cost'}
+              value={
+                spend
+                  ? `$${spend.monthCostUsd.toFixed(2)}`
+                  : data.cost.rateConfigured
+                    ? 'Available'
+                    : 'No Rate Configured'
+              }
+              tone={spend ? (spend.budgetUsedPercent >= 80 ? 'warn' : 'default') : 'muted'}
+              hint={
+                spend
+                  ? `of the $${spend.budgetUsd} monthly cap · ${fmtNumber(spend.calls)} AI calls`
+                  : data.cost.note
+              }
             />
           </div>
 

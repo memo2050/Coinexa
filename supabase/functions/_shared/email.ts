@@ -15,6 +15,14 @@ const escapeHtml = (value: unknown) =>
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
 
+// The original templates point at the logo on Base44's media host, which goes away
+// with Base44. Serve it from the Coinexa site itself (public/media/logo.png).
+const BASE44_LOGO = 'https://media.base44.com/images/public/6ae24c523e67d1221bba9b1a/602210d7a_logo.png';
+const selfHosted = (html: string) => {
+  const site = (Deno.env.get('APP_URL') || '').replace(/\/$/, '');
+  return site ? html.split(BASE44_LOGO).join(`${site}/media/logo.png`) : html;
+};
+
 const fill = (template: string, variables: Record<string, unknown>, escape: boolean) =>
   template.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_, key) => (escape ? escapeHtml(variables[key]) : String(variables[key] ?? '')));
 
@@ -36,7 +44,7 @@ export async function SendEmail(args: { to: string; template_name: string; varia
       from: Deno.env.get('EMAIL_FROM') || 'Coinexa <onboarding@resend.dev>',
       to: [redirect || args.to],
       subject,
-      html: fill(template.html, variables, true),
+      html: selfHosted(fill(template.html, variables, true)),
     }),
     signal: AbortSignal.timeout(15000),
   });
