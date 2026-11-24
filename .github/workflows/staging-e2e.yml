@@ -40,5 +40,15 @@ jobs:
           rm -f /tmp/keys.json
           echo "SUPABASE_URL=https://${SUPABASE_PROJECT_REF}.supabase.co" >> "$GITHUB_ENV"
           grep -qi '^ai' ops/e2e.request && echo "E2E_AI=1" >> "$GITHUB_ENV" || true
+          grep -qi 'research' ops/e2e.request && echo "E2E_RESEARCH=1" >> "$GITHUB_ENV" || true
       - name: Backend end-to-end checks
         run: node scripts/e2e-staging.mjs
+      - name: Recent function errors (for diagnosis)
+        if: always()
+        run: |
+          start=$(date -u -d '-25 min' +%Y-%m-%dT%H:%M:%SZ)
+          sql="select timestamp, event_message, metadata.level as level from function_logs cross join unnest(metadata) as metadata where metadata.level in ('error','warning') order by timestamp desc limit 40"
+          curl -sG "https://api.supabase.com/v1/projects/${SUPABASE_PROJECT_REF}/analytics/endpoints/logs.all" \
+            -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
+            --data-urlencode "sql=${sql}" --data-urlencode "iso_timestamp_start=${start}" \
+          | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const j=JSON.parse(s);if(j.error){console.log("log query:",JSON.stringify(j.error).slice(0,400));return}for(const r of (j.result||[]).reverse())console.log(new Date(r.timestamp/1000).toISOString(),r.level,String(r.event_message).replace(/\s+/g," ").slice(0,500))}catch(e){console.log(s.slice(0,400))}})'

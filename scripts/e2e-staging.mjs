@@ -13,6 +13,7 @@ const URL_ = process.env.SUPABASE_URL;
 const ANON = process.env.SUPABASE_ANON_KEY;
 const SERVICE = process.env.SUPABASE_SERVICE_KEY;
 const RUN_AI = process.env.E2E_AI === '1';
+const RUN_RESEARCH = process.env.E2E_RESEARCH === '1'; // web search: ~$0.20 per run
 if (!URL_ || !ANON || !SERVICE) throw new Error('SUPABASE_URL, SUPABASE_ANON_KEY and SUPABASE_SERVICE_KEY are required');
 if (!/ycvhmzunagrpihtgisiu/.test(URL_)) throw new Error('Refusing to run: this suite only targets the coinexa-staging project');
 
@@ -287,6 +288,7 @@ async function main() {
     return `${r.data.task?.status}, ${r.ms} ms`;
   });
   await check('ai', 'productResearch builds a report with web search', async () => {
+    if (!RUN_RESEARCH) return { skip: true, detail: 'add "research" to ops/e2e.request (~$0.20)' };
     const r = await call(B.token, 'productResearch', { query: 'handmade ceramic coffee mug', max_products: 1, market: 'Germany' });
     if (r.status !== 200 || !r.data.report?.id) throw new Error(`status ${r.status} ${JSON.stringify(r.data).slice(0, 250)}`);
     return `${r.ms} ms`;

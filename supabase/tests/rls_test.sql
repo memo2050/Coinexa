@@ -153,4 +153,27 @@ select pg_temp.check(
   '27 browser insert cannot backdate or impersonate');
 rollback;
 
+-- Personal records (no workspace), as product research saves them.
+begin;
+select pg_temp.act_as('00000000-0000-0000-0000-00000000000b', 'b@test.local');
+set local role authenticated;
+insert into public.research_reports (id, query) values ('rep-b', 'mugs');
+select pg_temp.check(exists (select 1 from public.research_reports where id = 'rep-b'), '28 user creates and sees a personal report');
+update public.research_reports set query = 'cups' where id = 'rep-b';
+select pg_temp.check((select query from public.research_reports where id = 'rep-b') = 'cups', '29 user edits own personal report');
+do $$ begin
+  begin
+    update public.research_reports set organization_id = 'org-c' where id = 'rep-b';
+    raise notice 'FAIL: 30 moved personal report into another workspace';
+  exception when others then raise notice 'pass: 30 cannot move a record into another workspace';
+  end;
+end $$;
+select pg_temp.act_as('00000000-0000-0000-0000-00000000000c', 'c@test.local');
+select pg_temp.check(not exists (select 1 from public.research_reports where id = 'rep-b'), '31 others cannot see a personal report');
+update public.research_reports set query = 'hacked' where id = 'rep-b';
+delete from public.research_reports where id = 'rep-b';
+select pg_temp.act_as('00000000-0000-0000-0000-00000000000b', 'b@test.local');
+select pg_temp.check((select query from public.research_reports where id = 'rep-b') = 'cups', '32 others cannot edit or delete a personal report');
+rollback;
+
 select 'ALL RLS CHECKS PASSED' as result;
