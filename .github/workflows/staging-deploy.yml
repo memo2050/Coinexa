@@ -158,4 +158,4 @@ jobs:
           lftp -u "$FTP_USER","$FTP_PASSWORD" "$FTP_HOST" -e "set ftp:ssl-allow yes; set ssl:verify-certificate no; mirror -R --delete --verbose=1 --exclude-glob .well-known --exclude-glob public_html/ dist/ \"${HOSTINGER_FTP_DIR:-.}\"; bye"
           # One-off tidy-up: an earlier upload went into a nested public_html/ by mistake.
           # Only removed when this FTP account's root is itself the web root (index.html just uploaded there).
-          lftp -u "$FTP_USER","$FTP_PASSWORD" "$FTP_HOST" -e "set ftp:ssl-allow yes; set ssl:verify-certificate no; cls -1 index.html && rm -r -f public_html; bye" || true
+          lftp -u "$FTP_USER","$FTP_PASSWORD" "$FTP_HOST" -e "set ftp:ssl-allow yes; set ssl:verify-certificate no; set cmd:fail-exit yes; cls -1 index.html; rm -r public_html; bye" && echo "removed nested public_html" || echo "no nested public_html"
