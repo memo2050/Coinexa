@@ -8,7 +8,7 @@ const HERO_ORB =
   '/media/generated_image.png';
 
 const HERO_VIDEO =
-  '/media/video4.mp4';
+  '/media/coinexa-showreel.mp4';
 
 const chipPositions = {
   left: 'left-[-4%] top-[16%] sm:left-[-8%]',

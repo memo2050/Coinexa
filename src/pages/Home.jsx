@@ -23,7 +23,7 @@ export default function Home() {
         <AgentsSection />
         <Portfolio />
         <Process />
-        <ShowcaseVideo src="/media/coinexa-showreel.mp4" />
+        <ShowcaseVideo src="/media/video4.mp4" />
         <Pricing />
         <About />
         <Testimonials />
