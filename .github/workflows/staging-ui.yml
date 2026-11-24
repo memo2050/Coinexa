@@ -3,6 +3,7 @@ name: Staging browser check
 # Runs when ops/ui.request changes on stage-2/build. Builds the site, serves it on
 # the runner against the staging backend, and visits every page on desktop and
 # mobile as a visitor, a user and an admin. No AI calls are made.
+# Port 5173 is the developer origin the staging functions already allow (CORS).
 # Screenshots go to the orphan branch ci/ui-shots (replaced on every run).
 on:
   push:
@@ -48,9 +49,9 @@ jobs:
         run: npm i --no-save --no-audit --no-fund playwright@1 && npx playwright install --with-deps chromium
       - name: Visit every page
         run: |
-          npx vite preview --port 4173 --strictPort > /tmp/preview.log 2>&1 &
-          for i in $(seq 1 30); do curl -sf http://localhost:4173/ >/dev/null && break; sleep 1; done
-          BASE_URL=http://localhost:4173 node scripts/ui-staging.mjs
+          npx vite preview --port 5173 --strictPort > /tmp/preview.log 2>&1 &
+          for i in $(seq 1 30); do curl -sf http://localhost:5173/ >/dev/null && break; sleep 1; done
+          BASE_URL=http://localhost:5173 node scripts/ui-staging.mjs
       - name: Publish screenshots to ci/ui-shots
         if: always()
         run: |

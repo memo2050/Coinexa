@@ -12,7 +12,7 @@ import { mkdirSync, writeFileSync, appendFileSync } from 'node:fs';
 
 const URL_ = process.env.SUPABASE_URL;
 const SERVICE = process.env.SUPABASE_SERVICE_KEY;
-const BASE = process.env.BASE_URL || 'http://localhost:4173';
+const BASE = process.env.BASE_URL || 'http://localhost:5173';
 if (!/ycvhmzunagrpihtgisiu/.test(URL_ || '')) throw new Error('Refusing to run: staging project only');
 
 const admin = createClient(URL_, SERVICE, { auth: { persistSession: false } });
@@ -52,7 +52,12 @@ async function visit(context, role, vp, path) {
     const u = r.url();
     if (r.status() >= 400 && (u.includes('supabase.co') || u.startsWith(BASE))) failed.push(`${r.status()} ${u.replace(URL_, '').split('?')[0].slice(0, 90)}`);
   });
-  page.on('requestfailed', (r) => failed.push(`failed ${r.url().split('?')[0].slice(0, 90)}`));
+  page.on('requestfailed', (r) => {
+    const reason = r.failure()?.errorText || '';
+    // Browsers cancel partial video downloads when a page closes or scrolls away.
+    if (/\.(mp4|webm)$/.test(r.url().split('?')[0]) && /ABORTED/i.test(reason)) return;
+    failed.push(`failed ${r.url().split('?')[0].slice(0, 90)} ${reason}`);
+  });
   const started = Date.now();
   let finalPath = '';
   let heading = '';
@@ -73,6 +78,10 @@ async function visit(context, role, vp, path) {
 }
 
 async function main() {
+  for (const file of ['video4.mp4', 'coinexa-showreel.mp4', 'NewpersonalAgent.mp4', 'logo.png', 'coinexa-logo.png', 'hero-sphere.png', 'generated_image.png']) {
+    const res = await fetch(`${BASE}/media/${file}`, { method: 'HEAD' });
+    rows.push({ role: 'media', vp: '-', path: `/media/${file}`, finalPath: String(res.status), heading: res.headers.get('content-type') || '', ms: 0, blank: false, consoleErrors: res.ok ? [] : [`HTTP ${res.status}`], failed: [] });
+  }
   const { data, error } = await admin.auth.admin.createUser({ email, password, email_confirm: true, user_metadata: { full_name: 'UI Tester' } });
   if (error) throw error;
   userId = data.user.id;
