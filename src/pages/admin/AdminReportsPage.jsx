@@ -18,6 +18,7 @@ export default function AdminReportsPage() {
   const usage = useAdminEndpoint('adminUsage', { days });
   const agents = useAdminEndpoint('adminAgents', {});
   const customers = useAdminEndpoint('adminCustomers', {});
+  const spend = useAdminEndpoint('adminAiSpend');
 
   const loading = overview.loading || usage.loading || agents.loading || customers.loading;
   const error = overview.error || usage.error || agents.error || customers.error;
@@ -41,7 +42,13 @@ export default function AdminReportsPage() {
         { metric: 'Success rate', value: data.runs.successRate ?? 'n/a', note: 'succeeded vs failed' },
         { metric: 'Model calls (all time)', value: data.usage.totalUnits, note: `${data.usage.totalEvents} events` },
         { metric: 'Model calls (month)', value: data.usage.monthUnits, note: 'current month' },
-        { metric: 'Estimated AI cost', value: data.cost.rateConfigured ? 'available' : 'No Rate Configured', note: data.cost.note },
+        spend.data
+          ? {
+              metric: 'AI spend (month, USD)',
+              value: spend.data.monthCostUsd,
+              note: `${spend.data.calls} AI calls; cap $${spend.data.budgetUsd} per month`,
+            }
+          : { metric: 'Estimated AI cost', value: data.cost.rateConfigured ? 'available' : 'No Rate Configured', note: data.cost.note },
       ]
     );
   };

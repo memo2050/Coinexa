@@ -21,7 +21,7 @@ export default function AdminUsagePage() {
       <AdminPageHeader
         eyebrow="Consumption"
         title="Usage & cost"
-        description="Model calls metered by the platform, grouped by operation, agent, workspace and model. Cost appears only where a verified rate exists."
+        description="Real AI spend from the AI usage ledger, plus metered operations grouped by operation, agent, workspace and model."
         onRefresh={reload}
         loading={loading}
       />
@@ -49,21 +49,11 @@ export default function AdminUsagePage() {
 
       {data && (
         <>
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <StatCard label="Model calls" value={fmtNumber(data.totals.units)} hint="Metered units in this window" />
+          <AiSpendPanel />
+
+          <div className="grid grid-cols-2 gap-3">
+            <StatCard label="Metered operations" value={fmtNumber(data.totals.units)} hint="Metered units in this window" />
             <StatCard label="Metered events" value={fmtNumber(data.totals.events)} hint="One row per operation" />
-            <StatCard
-              label="Tokens captured"
-              value={data.tokens.captured ? fmtNumber(data.tokens.capturedRecords) : 'Not captured'}
-              tone="muted"
-              hint={data.tokens.note}
-            />
-            <StatCard
-              label="Estimated cost"
-              value={data.cost.rateConfigured ? 'Available' : 'No Rate Configured'}
-              tone="muted"
-              hint={data.cost.note}
-            />
           </div>
 
           {data.classification && (
@@ -177,7 +167,6 @@ export default function AdminUsagePage() {
             )}
           </div>
 
-          <AiSpendPanel />
 
           <p className="text-[0.7rem] text-slate-500">
             The previous usage console is still available at{' '}
