@@ -158,10 +158,33 @@ export function applySort(builder, sort) {
 }
 
 // Base44 wrote '' for "no reference"; foreign keys and uuid columns need NULL.
+// BEGIN GENERATED COLUMNS (scripts/gen-columns.mjs — do not edit by hand)
+export const COLUMNS = {
+  profiles: new Set(["id","email","full_name","role","organization_ids","created_date","updated_date"]),
+  organizations: new Set(["id","name","slug","industry","size","plan","status","internal","data_class","stripe_customer_id","stripe_subscription_id","task_limit_month","agent_limit","seat_limit","concurrent_limit","created_date","updated_date","created_by_id","created_by"]),
+  organization_members: new Set(["id","organization_id","user_id","email","full_name","member_role","status","joined_at","created_date","updated_date","created_by_id","created_by"]),
+  agents: new Set(["id","name","organization_id","specialization","industry_key","industry","business_name","business_description","tasks","responsibilities","permissions","tone","tools","role","summary","goals","workflow","workflow_graph","workflow_version","workflow_enabled","knowledge_requirements","safety_rules","system_instructions","last_run_status","last_run_at","status","created_date","updated_date","created_by_id","created_by"]),
+  agent_tasks: new Set(["id","execution_id","idempotency_key","agent_id","agent_name","organization_id","task","output","status","error","steps","approvals","progress","current_node","awaiting_approval","workflow_version","warnings","attachments","attachment_names","duration_ms","started_at","finished_at","created_date","updated_date","created_by_id","created_by"]),
+  agent_uploads: new Set(["id","file_uri","file_name","organization_id","created_date","updated_date","created_by_id","created_by"]),
+  research_reports: new Set(["id","query","organization_id","market","suppliers","assumptions","products","product_count","overall_confidence","sources","limitations","summary","researched_at","agent_id","xlsx_file_uri","xlsx_generated_at","created_date","updated_date","created_by_id","created_by"]),
+  usage_records: new Set(["id","organization_id","user_id","agent_id","task_id","kind","units","model","input_tokens","output_tokens","duration_ms","created_date","updated_date","created_by_id","created_by"]),
+  audit_logs: new Set(["id","organization_id","actor_id","actor_email","action","target_type","target_id","detail","created_date","updated_date","created_by_id","created_by"]),
+  inquiries: new Set(["id","name","email","service","message","status","reference","submitted_at","studio_notified_at","studio_notify_status","visitor_ack_status","visitor_ack_at","created_date","updated_date","created_by_id","created_by"]),
+  ai_usage: new Set(["id","user_id","organization_id","function_name","model","input_tokens","output_tokens","web_searches","cost_usd","ok","created_date"]),
+};
+// END GENERATED COLUMNS
+
+// Base44 entities were schemaless and ignored unknown fields; Postgres rejects the
+// whole write. Keep Base44's behaviour: drop fields that are not real columns.
+// Identity and timestamp columns are enforced by database triggers for signed-in
+// callers (tg_stamp_insert / tg_stamp_update), whatever the payload says.
+
 export function cleanRecord(table, data) {
   const out = {};
+  const known = COLUMNS[table];
   for (const [key, value] of Object.entries(data || {})) {
     if (value === undefined) continue;
+    if (known && !known.has(key)) continue;
     if (value === '' && isNullableRef(table, key)) out[key] = null;
     else out[key] = value instanceof Date ? value.toISOString() : value;
   }
@@ -245,6 +268,22 @@ export function makeEntity(client, entityName) {
       if (error) throw fail(error);
       return data || [];
     },
+    // bulkUpdate([{ id, ...changes }]) → updated rows (one request per row; ids must be visible to the caller)
+    async bulkUpdate(list) {
+      const rows = [];
+      for (const { id, ...changes } of list || []) {
+        if (id === undefined || id === null) continue;
+        const { data: row, error } = await client
+          .from(table)
+          .update(cleanRecord(table, changes))
+          .eq('id', String(id))
+          .select('*')
+          .maybeSingle();
+        if (error) throw fail(error);
+        if (row) rows.push(row);
+      }
+      return rows;
+    },
     async update(id, data) {
       const { data: row, error } = await client
         .from(table)
@@ -263,7 +302,7 @@ export function makeEntity(client, entityName) {
       return { id };
     },
     // aggregate({ query, groupBy, sum: ['units'], dateBucket: { field, unit: 'month' } }) → { rows }
-    async aggregate({ query, groupBy, sum = [], dateBucket } = {}) {
+    async aggregate({ query, groupBy, sum = [], avg = [], dateBucket } = {}) {
       const rows = await fetchAll(query);
       const groups = new Map();
       for (const row of rows) {
@@ -278,7 +317,21 @@ export function makeEntity(client, entityName) {
         const group = groups.get(key) || { count: 0 };
         group.count += 1;
         for (const field of sum) group[`sum_${field}`] = (group[`sum_${field}`] || 0) + (Number(row[field]) || 0);
+        for (const field of avg) {
+          const value = Number(row[field]);
+          if (row[field] === null || row[field] === undefined || Number.isNaN(value)) continue;
+          group[`_avgsum_${field}`] = (group[`_avgsum_${field}`] || 0) + value;
+          group[`_avgn_${field}`] = (group[`_avgn_${field}`] || 0) + 1;
+        }
         groups.set(key, group);
+      }
+      for (const group of groups.values()) {
+        for (const field of avg) {
+          const n = group[`_avgn_${field}`] || 0;
+          group[`avg_${field}`] = n ? group[`_avgsum_${field}`] / n : null;
+          delete group[`_avgsum_${field}`];
+          delete group[`_avgn_${field}`];
+        }
       }
       return {
         rows: [...groups].map(([key, group]) => ({

@@ -50,7 +50,7 @@ jobs:
         with: { deno-version: v2.x }
       - run: npm ci
       - name: Shared code in sync
-        run: node scripts/check-shared.mjs
+        run: node scripts/check-shared.mjs && node scripts/gen-columns.mjs --check
       - name: Ported functions match base44/ (only import lines and reviewed patches differ)
         run: node scripts/port-functions.mjs && git diff --exit-code -- supabase/functions
       - name: Unit tests (query translation, AI adapter, budget guard)

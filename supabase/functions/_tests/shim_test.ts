@@ -99,6 +99,31 @@ Deno.test('aggregate groups and sums like Base44', async () => {
   assertEquals(byMonth.rows.length, 2);
 });
 
+Deno.test('aggregate avg (admin agents: average run time)', async () => {
+  const { client } = fakeClient([
+    { agent_id: 'a', duration_ms: 1000 },
+    { agent_id: 'a', duration_ms: 3000 },
+    { agent_id: 'a', duration_ms: null },
+    { agent_id: 'b' },
+  ]);
+  const out = await makeEntity(client, 'AgentTask').aggregate({ query: {}, groupBy: 'agent_id', avg: ['duration_ms'] });
+  assertEquals(out.rows, [{ agent_id: 'a', count: 3, avg_duration_ms: 2000 }, { agent_id: 'b', count: 1, avg_duration_ms: null }]);
+});
+
+Deno.test('bulkUpdate updates each row by id', async () => {
+  const updates: unknown[] = [];
+  const b: any = {
+    update(d: unknown) { updates.push(d); return b; },
+    eq() { return b; }, select() { return b; },
+    maybeSingle() { return Promise.resolve({ data: { id: 'x' }, error: null }); },
+  };
+  const rows = await makeEntity({ from: () => b }, 'Agent').bulkUpdate([
+    { id: 'a1', organization_id: 'o1' }, { id: 'a2', organization_id: 'o1' },
+  ]);
+  assertEquals(rows.length, 2);
+  assertEquals(updates.length, 2);
+});
+
 // ---------------- AI adapter ----------------
 
 function fakeService(spent: number) {

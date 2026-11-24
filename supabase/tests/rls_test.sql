@@ -141,4 +141,16 @@ end $$;
 \set ON_ERROR_STOP on
 select pg_temp.check((select role from public.profiles where email = 'nope@test.local') = 'user', '26 unconfirmed account is not promoted');
 
+-- Browser callers cannot backdate rows (quotas count by created_date).
+begin;
+select pg_temp.act_as('00000000-0000-0000-0000-00000000000b', 'b@test.local');
+set local role authenticated;
+insert into public.agents (name, organization_id, created_date, created_by_id)
+  select 'backdated', organization_id, '2020-01-01', '00000000-0000-0000-0000-0000000000cc' from public.agents limit 1;
+select pg_temp.check(
+  (select created_date > now() - interval '1 minute' and created_by_id = '00000000-0000-0000-0000-00000000000b'
+     from public.agents where name = 'backdated'),
+  '27 browser insert cannot backdate or impersonate');
+rollback;
+
 select 'ALL RLS CHECKS PASSED' as result;
