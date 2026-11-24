@@ -21,7 +21,7 @@ jobs:
       - name: Load staging settings
         run: grep -E '^[A-Z_]+=' deploy/staging.env >> "$GITHUB_ENV"
       - uses: actions/setup-node@v4
-        with: { node-version: 20, cache: npm }
+        with: { node-version: 22, cache: npm }
       - run: npm ci --no-audit --no-fund
       - uses: supabase/setup-cli@v1
         with: { version: 3.3.0 }
