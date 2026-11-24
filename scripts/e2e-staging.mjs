@@ -339,7 +339,22 @@ async function cleanup() {
       if (users.length) await admin.from(t).delete().in('created_by_id', users);
     }
     if (orgs.length) await admin.from('organizations').delete().in('id', orgs);
-    if (users.length) await admin.from('ai_usage').delete().in('user_id', users);
+    if (users.length) {
+      await admin.from('ai_usage').delete().in('user_id', users);
+      await admin.from('usage_records').delete().in('user_id', users);
+      await admin.from('audit_logs').delete().in('actor_id', users);
+    }
+    // Leftovers from earlier runs (accounts already deleted), identified by the test email pattern.
+    await admin.from('audit_logs').delete().like('actor_email', 'e2e-%@example.com');
+    await admin.from('inquiries').delete().like('email', 'e2e-visitor-%@example.com');
+    // Usage rows whose account no longer exists (earlier test runs). Staging only.
+    const { data: people } = await admin.from('profiles').select('id');
+    const alive = new Set((people || []).map((p) => p.id));
+    for (const t of ['usage_records', 'ai_usage']) {
+      const { data: rows } = await admin.from(t).select('id, user_id').not('user_id', 'is', null).limit(5000);
+      const orphans = (rows || []).filter((r) => !alive.has(r.user_id)).map((r) => r.id);
+      if (orphans.length) await admin.from(t).delete().in('id', orphans);
+    }
     await admin.from('inquiries').delete().like('email', `e2e-visitor-${runId}@example.com`);
     // Leaves the private/server copies of inquiry mails etc. untouched; they hold no personal data.
     for (const id of users) await admin.auth.admin.deleteUser(id);

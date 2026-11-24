@@ -147,6 +147,8 @@ async function cleanup() {
     }
     if (userId) {
       await admin.from('ai_usage').delete().eq('user_id', userId);
+      await admin.from('usage_records').delete().eq('user_id', userId);
+      await admin.from('audit_logs').delete().eq('actor_id', userId);
       await admin.auth.admin.deleteUser(userId);
     }
     console.log('cleanup done');
