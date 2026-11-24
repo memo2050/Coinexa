@@ -293,10 +293,20 @@ async function main() {
     if (!pausedTask) return { skip: true, detail: 'run did not pause for approval' };
     const other = await call(A.token, 'resumeAgentTask', { taskId: pausedTask, decision: 'approve' });
     if (other.status !== 403 && other.status !== 404) throw new Error(`another user could resume: ${other.status}`);
-    const r = await call(B.token, 'resumeAgentTask', { taskId: pausedTask, decision: 'approve', note: 'Approved by E2E' });
-    if (r.status !== 200) throw new Error(`status ${r.status} ${JSON.stringify(r.data).slice(0, 250)}`);
-    const { data } = await admin.from('agent_tasks').select('status').eq('id', pausedTask).single();
-    return `${data.status}, ${r.ms} ms`;
+    // A workflow can hold several checkpoints (each action step asks first).
+    let status = 'awaiting_approval';
+    let approvals = 0;
+    let ms = 0;
+    while (status === 'awaiting_approval' && approvals < 6) {
+      const r = await call(B.token, 'resumeAgentTask', { taskId: pausedTask, decision: 'approve', note: 'Approved by E2E' });
+      if (r.status !== 200) throw new Error(`status ${r.status} ${JSON.stringify(r.data).slice(0, 250)}`);
+      approvals += 1;
+      ms += r.ms;
+      ({ data: { status } } = await admin.from('agent_tasks').select('status').eq('id', pausedTask).single());
+    }
+    const { data: done } = await admin.from('agent_tasks').select('status, output').eq('id', pausedTask).single();
+    if (done.status !== 'succeeded') throw new Error(`ended as ${done.status} after ${approvals} approvals`);
+    return `succeeded after ${approvals} approval(s), ${ms} ms, output ${String(done.output || '').length} chars`;
   });
   await check('ai', 'productResearch builds a report with web search', async () => {
     if (!RUN_RESEARCH) return { skip: true, detail: 'add "research" to ops/e2e.request (~$0.20)' };
