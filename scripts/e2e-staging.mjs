@@ -232,6 +232,16 @@ async function main() {
     return `status ${good.status} ${JSON.stringify(good.data).slice(0, 150)}`;
   });
 
+  await check('security', 'Stripe webhook rejects unsigned and forged events', async () => {
+    const event = JSON.stringify({ type: 'checkout.session.completed', data: { object: { metadata: { organization_id: orgA, tier: 'studio_retainer' } } } });
+    const post = (headers) => fetch(`${URL_}/functions/v1/stripeWebhook`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: event });
+    const unsigned = await post({});
+    const forged = await post({ 'stripe-signature': `t=${Math.floor(Date.now() / 1000)},v1=${'ab'.repeat(32)}` });
+    const { data } = await admin.from('organizations').select('plan').eq('id', orgA).single();
+    if (unsigned.status !== 400 || forged.status !== 400) return `statuses ${unsigned.status}/${forged.status}`;
+    return data.plan !== 'studio_retainer' ? true : 'plan changed!';
+  });
+
   // ---------------- Admin functions ----------------
   const adminFns = ['adminAiSpend', 'adminOverview', 'adminAgents', 'adminRuns', 'adminUsage', 'adminCustomers', 'adminBilling', 'adminActivity', 'usageSummary', 'verifyTenantIsolation'];
   await check('admin', 'regular users are refused by every admin function', async () => {
