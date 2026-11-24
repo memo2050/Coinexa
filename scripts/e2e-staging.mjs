@@ -263,6 +263,7 @@ async function main() {
     return;
   }
   let agentB;
+  let pausedTask = null;
   await check('ai', 'generateAgent designs an agent (Agent Creator)', async () => {
     const r = await call(B.token, 'generateAgent', {
       industry: 'E-commerce', agent_title: 'Customer support assistant', business_name: 'E2E Test Shop',
@@ -285,7 +286,17 @@ async function main() {
     if (r.status !== 200) throw new Error(`status ${r.status} ${JSON.stringify(r.data).slice(0, 250)}`);
     const runs = await B.entities.AgentTask.filter({ agent_id: agentB.id });
     if (!runs.length) throw new Error('run not visible to its owner');
+    pausedTask = r.data.task?.status === 'awaiting_approval' ? r.data.task.id : null;
     return `${r.data.task?.status}, ${r.ms} ms`;
+  });
+  await check('ai', 'resumeAgentTask: approving a checkpoint finishes the run', async () => {
+    if (!pausedTask) return { skip: true, detail: 'run did not pause for approval' };
+    const other = await call(A.token, 'resumeAgentTask', { taskId: pausedTask, decision: 'approve' });
+    if (other.status !== 403 && other.status !== 404) throw new Error(`another user could resume: ${other.status}`);
+    const r = await call(B.token, 'resumeAgentTask', { taskId: pausedTask, decision: 'approve', note: 'Approved by E2E' });
+    if (r.status !== 200) throw new Error(`status ${r.status} ${JSON.stringify(r.data).slice(0, 250)}`);
+    const { data } = await admin.from('agent_tasks').select('status').eq('id', pausedTask).single();
+    return `${data.status}, ${r.ms} ms`;
   });
   await check('ai', 'productResearch builds a report with web search', async () => {
     if (!RUN_RESEARCH) return { skip: true, detail: 'add "research" to ops/e2e.request (~$0.20)' };
