@@ -221,7 +221,9 @@ async function main() {
     const r = await call(null, 'submitInquiry', {
       name: 'E2E Visitor', email: `e2e-visitor-${runId}@example.com`, service: 'AI agents', message: 'Automated staging test enquiry, please ignore.',
     });
-    return r.status === 200 ? `reference ${r.data.reference || 'ok'}` : `status ${r.status} ${JSON.stringify(r.data).slice(0, 150)}`;
+    if (r.status !== 200) return `status ${r.status} ${JSON.stringify(r.data).slice(0, 150)}`;
+    const { data: saved } = await admin.from('inquiries').select('studio_notify_status, visitor_ack_status').eq('email', `e2e-visitor-${runId}@example.com`).maybeSingle();
+    return `reference ${r.data.reference || 'ok'}; studio email: ${saved?.studio_notify_status || '?'}, visitor email: ${saved?.visitor_ack_status || '?'}`;
   });
   await check('billing', 'checkout: refuses unknown plans; test checkout when Stripe test key is set', async () => {
     const bad = await call(A.token, 'createCheckoutSession', { tier: 'nope' });
