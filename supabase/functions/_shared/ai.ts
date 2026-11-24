@@ -58,6 +58,25 @@ async function guardBudget(service: Service) {
   }
 }
 
+// Accepts a JSON answer the model wrote as text (optionally in a ```json fence).
+function jsonFromText(blocks: { type: string; text?: string }[] = []): any {
+  const text = blocks.filter((b) => b.type === 'text').map((b) => b.text || '').join('').trim();
+  if (!text) return undefined;
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+  const candidates = [fenced?.[1], text];
+  const start = text.search(/[[{]/);
+  const end = Math.max(text.lastIndexOf('}'), text.lastIndexOf(']'));
+  if (start >= 0 && end > start) candidates.push(text.slice(start, end + 1));
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    try {
+      const value = JSON.parse(candidate.trim());
+      if (value && typeof value === 'object') return value;
+    } catch { /* try the next candidate */ }
+  }
+  return undefined;
+}
+
 async function ledger(service: Service, row: Record<string, unknown>) {
   const ctx = currentContext();
   const { error } = await service.from('ai_usage').insert({
@@ -134,7 +153,12 @@ export function makeInvokeLLM(service: Service) {
     }
     if (schema) tools.push(outputTool(schema));
 
-    const content = [...(args.file_urls?.length ? await fileBlocks(args.file_urls) : []), { type: 'text', text: String(args.prompt || '') }];
+    // Some models refuse a forced tool_choice, so the structured answer is requested in
+    // the prompt and the tool is left on "auto"; plain-text JSON is accepted as a fallback.
+    const instruction = schema
+      ? '\n\nWhen you have the final answer, return it by calling the submit_result tool. Do not write the answer as plain text.'
+      : '';
+    const content = [...(args.file_urls?.length ? await fileBlocks(args.file_urls) : []), { type: 'text', text: String(args.prompt || '') + instruction }];
     const messages: { role: string; content: unknown }[] = [{ role: 'user', content }];
     const maxTokens = args.max_tokens || (args.add_context_from_internet ? 8000 : 4096);
 
@@ -169,9 +193,7 @@ export function makeInvokeLLM(service: Service) {
     let ok = false;
     let failure = '';
     try {
-      // Without web search the structured answer can be forced directly.
-      const firstChoice = schema && !args.add_context_from_internet ? { type: 'tool', name: 'submit_result' } : undefined;
-      let body = await call(firstChoice);
+      let body = await call();
 
       for (let turn = 0; turn < 6; turn += 1) {
         const toolUse = (body.content || []).find((block: { type: string; name?: string }) => block.type === 'tool_use' && block.name === 'submit_result');
@@ -188,15 +210,19 @@ export function makeInvokeLLM(service: Service) {
             .join('')
             .trim();
         }
-        // Long web-search turns pause; continue them. Otherwise ask for the
-        // structured answer explicitly.
-        messages.push({ role: 'assistant', content: body.content });
-        if (body.stop_reason === 'pause_turn') {
-          body = await call();
-        } else {
-          messages.push({ role: 'user', content: [{ type: 'text', text: 'Now return the final answer by calling submit_result.' }] });
-          body = await call({ type: 'tool', name: 'submit_result' });
+        // Long web-search turns pause; continue them.
+        if (body.stop_reason !== 'pause_turn') {
+          const parsed = jsonFromText(body.content);
+          if (parsed !== undefined) {
+            ok = true;
+            return schema && schema.type !== 'object' && parsed && typeof parsed === 'object' && 'result' in parsed ? parsed.result : parsed;
+          }
         }
+        messages.push({ role: 'assistant', content: body.content });
+        if (body.stop_reason !== 'pause_turn') {
+          messages.push({ role: 'user', content: [{ type: 'text', text: 'Now return the final answer by calling the submit_result tool.' }] });
+        }
+        body = await call();
       }
       throw Object.assign(new Error('The model did not return a final answer.'), { status: 502 });
     } catch (error) {

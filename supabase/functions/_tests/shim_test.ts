@@ -166,7 +166,7 @@ Deno.test('plain prompt returns text and records spend', async () => {
   assertEquals(svc.inserted[0].ok, true);
 });
 
-Deno.test('JSON schema is forced through the submit_result tool', async () => {
+Deno.test('JSON schema is answered through the submit_result tool (tool_choice left on auto)', async () => {
   const svc = fakeService(0);
   let result: unknown;
   const bodies = await withFetch(
@@ -174,7 +174,8 @@ Deno.test('JSON schema is forced through the submit_result tool', async () => {
     async () => { result = await makeInvokeLLM(svc)({ prompt: 'x', response_json_schema: { type: 'object', properties: { name: { type: 'string' } } } }); }
   );
   assertEquals(result, { name: 'Nova' });
-  assertEquals((bodies as any)[0].tool_choice, { type: 'tool', name: 'submit_result' });
+  assertEquals((bodies as any)[0].tool_choice, undefined);
+  assertEquals((bodies as any)[0].tools[0].name, 'submit_result');
 });
 
 Deno.test('web search: pause_turn continues, then the structured answer is requested', async () => {
@@ -190,8 +191,32 @@ Deno.test('web search: pause_turn continues, then the structured answer is reque
   );
   assertEquals(result, { products: [] });
   assertEquals((bodies as any)[0].tools[0].name, 'web_search');
-  assertEquals((bodies as any)[2].tool_choice, { type: 'tool', name: 'submit_result' });
+  assertEquals((bodies as any)[2].tool_choice, undefined);
+  assertEquals((bodies as any)[2].messages.at(-1).content[0].text.includes('submit_result'), true);
   assertEquals(svc.inserted[0].web_searches, 2);
+});
+
+Deno.test('plain-text JSON answer is accepted when the model skips the tool', async () => {
+  const svc = fakeService(0);
+  let result: unknown;
+  await withFetch(
+    [{ content: [{ type: 'text', text: 'Here it is:\n```json\n{"name":"Orbit"}\n```' }], stop_reason: 'end_turn', usage: { input_tokens: 5, output_tokens: 5 } }],
+    async () => { result = await makeInvokeLLM(svc)({ prompt: 'x', response_json_schema: { type: 'object', properties: { name: { type: 'string' } } } }); }
+  );
+  assertEquals(result, { name: 'Orbit' });
+});
+
+Deno.test('a model error is kept in the ledger', async () => {
+  const svc = fakeService(0);
+  const origFetch = globalThis.fetch;
+  globalThis.fetch = (() => Promise.resolve(new Response(JSON.stringify({ error: { message: 'bad request detail' } }), { status: 400 }))) as typeof fetch;
+  try {
+    await makeInvokeLLM(svc)({ prompt: 'x' }).catch(() => {});
+  } finally {
+    globalThis.fetch = origFetch;
+  }
+  assertEquals(svc.inserted[0].ok, false);
+  assertEquals(svc.inserted[0].error, 'bad request detail');
 });
 
 Deno.test('budget reached: the call is refused before reaching the provider', async () => {
