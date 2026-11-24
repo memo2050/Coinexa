@@ -67,6 +67,13 @@ async function visit(context, role, vp, path) {
     await revealAll(page);
     finalPath = new URL(page.url()).pathname;
     heading = (await page.locator('h1, h2').first().textContent({ timeout: 2000 }).catch(() => '')).trim().slice(0, 60);
+    if (path === '/') {
+      // Homepage videos in page order (top first), with whether each one is actually playing.
+      const videos = await page.evaluate(() =>
+        [...document.querySelectorAll('main video')].map((v) => `${v.getAttribute('src')} (${v.readyState >= 2 ? 'loaded' : 'not loaded'})`)
+      );
+      heading = `videos top→bottom: ${videos.join(' → ')}`;
+    }
   } catch (e) {
     consoleErrors.push(`navigation: ${e.message.slice(0, 150)}`);
   }
