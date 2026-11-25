@@ -70,9 +70,11 @@ jobs:
           psql "$LOCAL" -q -c "drop schema public cascade; create schema public; grant usage on schema public to anon, authenticated, service_role;"
           psql "$LOCAL" -q -c "truncate supabase_migrations.schema_migrations" || true
           # Storage folders (buckets) also come from the backup.
-          psql "$LOCAL" -q -c "set session_replication_role = replica; delete from storage.objects; delete from storage.buckets;"
+          psql postgresql://supabase_admin:postgres@127.0.0.1:54322/postgres -q -c "set session_replication_role = replica; delete from storage.objects; delete from storage.buckets;"
           psql "$LOCAL" -q -v ON_ERROR_STOP=0 -f /tmp/backup/roles.sql >/tmp/restore-roles.log 2>&1 || true
-          psql "$LOCAL" -q -v ON_ERROR_STOP=1 --single-transaction \
+          # The local stack's superuser (throwaway default password), as storage tables need it.
+          SUPER=postgresql://supabase_admin:postgres@127.0.0.1:54322/postgres
+          psql "$SUPER" -q -v ON_ERROR_STOP=1 --single-transaction \
             --command 'SET session_replication_role = replica' \
             --file /tmp/backup/schema.sql --file /tmp/backup/data.sql > /tmp/restore.log 2>&1 \
             || { echo "RESTORE FAILED"; grep -E "ERROR" /tmp/restore.log | sed -E 's/(DETAIL|Key).*//' | head -5; exit 1; }
