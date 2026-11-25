@@ -32,3 +32,11 @@ console.log('\n== Scans received (real workspaces) ==');
 const realScans = (scans || []).filter((s) => label(s.organization_id));
 for (const s of realScans) console.log(`${label(s.organization_id)} pc-${s.device_id.slice(0, 6)} ${t(s.created_date)} ${s.host_count} devices ${s.open_port_count} open ports ${s.network_summary} ${s.status}`);
 if (!realScans.length) console.log('none');
+
+console.log('\n== Staging accounts (no emails shown) ==');
+const real = (users?.users || []).filter((u) => !testUser.has(u.id));
+for (const u of real) {
+  const mine = (members || []).filter((m) => m.user_id === u.id);
+  const { data: roles } = await admin.from('organization_members').select('member_role, status').eq('user_id', u.id);
+  console.log(`account-${u.id.slice(0, 6)} created ${t(u.created_at)} confirmed ${u.email_confirmed_at ? 'yes' : 'NO'} last sign-in ${t(u.last_sign_in_at)} workspaces ${mine.length} roles ${(roles || []).map((r) => `${r.member_role}/${r.status}`).join(',') || '—'}${process.env.OWNER_EMAIL && u.email === process.env.OWNER_EMAIL ? '  <- owner email' : ''}`);
+}
