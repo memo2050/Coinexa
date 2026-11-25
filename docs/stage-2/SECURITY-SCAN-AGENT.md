@@ -46,8 +46,10 @@ modified `src/App.jsx`, `src/pages/Agents.jsx`, `supabase/config.toml`, `.github
 ## Phase 2 (25 Nov 2026): Windows Network Scanner — DONE, tested, published to staging
 
 Download (staging only): https://forward-darkblue-rook-76.hostingersite.com/downloads/coinexa-network-scanner-staging.exe
-(also linked on the Network security page with version and SHA-256). Version 0.2.0-staging.4,
-6.3 MB, SHA-256 `a278f3ff0aaae5730daf28871e637d353fdd5b20a266bc555b04111488684e0f`. Not code-signed (by decision).
+(also linked on the Network security page with version and SHA-256). Version 0.2.0-staging.5,
+6.3 MB, SHA-256 `f60ecc2ecf2de88dba0013577feb53ec36fd01368b2dc22bfd8ac36cb3c5e9a8`. Not code-signed (by decision).
+Each build is published only after its own Windows test run passes (staging.4 and staging.5 both 15/15; the
+hash changes between builds because the commit id is stamped into the file).
 
 What it does (`scanner/`, Go, single .exe, Windows 10/11 64-bit, no install, no admin rights, no drivers):
 - Double-click menu: 1 Link this PC · 2 Scan my network · 3 Check link · 4 Unlink · 5 Exit. Command line too:
