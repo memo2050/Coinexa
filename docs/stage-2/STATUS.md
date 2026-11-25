@@ -47,6 +47,10 @@ permissions, safety rules, instructions, status) into the owner's staging worksp
 No runs, history or users were copied. The QA probe agent was left out. A graph-builder bug from the original
 app (5 agents showed "The workflow could not be prepared") is fixed, with a regression test.
 
+## Recruitment agent (25 Nov)
+
+New AI Recruitment & Talent Sourcing Agent — see `docs/stage-2/RECRUITMENT-AGENT.md`.
+
 ## Remaining owner steps (need your accounts)
 
 1. ~~Hostinger FTP~~ done 24 Nov (host and user in `deploy/staging.env`, password as a GitHub secret).
