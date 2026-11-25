@@ -50,6 +50,8 @@ app (5 agents showed "The workflow could not be prepared") is fixed, with a regr
 ## Recruitment agent (25 Nov)
 
 New AI Recruitment & Talent Sourcing Agent — see `docs/stage-2/RECRUITMENT-AGENT.md`.
+Phase 1 (25 Nov): text-only written AI interviews in the candidate portal, PDF CV import read by the AI,
+per-candidate reports emailed to the hiring manager; LinkedIn removed. E2E 77/0, browser 70/0.
 
 ## Remaining owner steps (need your accounts)
 

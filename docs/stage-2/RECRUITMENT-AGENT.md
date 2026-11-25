@@ -62,7 +62,17 @@ Branch `stage-2/build`. Built 24–25 Nov 2026.
 - modified: `src/App.jsx` (routes), `src/pages/Agents.jsx` (featured card), `supabase/config.toml`,
   `.github/workflows/staging-deploy.yml` (data key), `scripts/e2e-staging.mjs`, `scripts/ui-staging.mjs`
 
-## Tests (actual results, 25 Nov)
+## Tests — Phase 1 interviews (actual results, 25 Nov)
+- Unit 33/33 (adds interview flow cap, guard for protected/pay wording, question normalising). Database policies 38/38
+  locally (interview tables server-only; follow-ups capped at 2).
+- Staging end-to-end: 77 passed, 0 failed, 3 skipped — 17 new interview checks: plan required before inviting,
+  protected questions refused, company isolation (plan, invite, transcript, report), consent required, another
+  candidate's link refused, question progression, expiry, hiring-manager report, LinkedIn absent; with AI: drafted
+  questions, a full interview with follow-ups 1/2/0 (cap held) scored 37/100 with evidence checked, PDF CV import
+  (real PDF read, fake PDF skipped, other company refused).
+- Browser: 70 page views, 0 problems.
+
+## Tests (earlier results, 25 Nov)
 - Unit: 30/30 (10 recruitment: negotiation bounds incl. $150 max vs $180 ask, strategies, approved exceptions, amount
   guard, evidence verification, encryption/tamper, CSV, masking/tokens).
 - Database policies: 35/35.
