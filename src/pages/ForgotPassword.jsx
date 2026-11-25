@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import Turnstile, { captchaEnabled } from "@/components/Turnstile";
 import { Link } from "react-router-dom";
 import { base44 } from "@/api/base44Client";
 import { Button } from "@/components/ui/button";
@@ -8,6 +9,8 @@ import { Mail, ArrowLeft, Loader2 } from "lucide-react";
 import AuthLayout from "@/components/AuthLayout";
 
 export default function ForgotPassword() {
+  const [captcha, setCaptcha] = useState(null);
+  const [captchaRound, setCaptchaRound] = useState(0);
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
@@ -16,12 +19,13 @@ export default function ForgotPassword() {
     e.preventDefault();
     setLoading(true);
     try {
-      await base44.auth.resetPasswordRequest(email);
+      await base44.auth.resetPasswordRequest(email, captcha);
     } catch {
       // Always show success regardless
     } finally {
       setLoading(false);
       setSent(true);
+      setCaptchaRound((n) => n + 1);
     }
   };
 
@@ -59,7 +63,8 @@ export default function ForgotPassword() {
               />
             </div>
           </div>
-          <Button type="submit" className="w-full h-12 font-medium" disabled={loading}>
+          <Turnstile onToken={setCaptcha} resetKey={captchaRound} />
+          <Button type="submit" className="w-full h-12 font-medium" disabled={loading || (captchaEnabled && !captcha)}>
             {loading ? (
               <>
                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />

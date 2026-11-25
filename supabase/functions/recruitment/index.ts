@@ -1093,6 +1093,20 @@ async function portalView(candidate: Row) {
   };
 }
 
+// Cloudflare Turnstile check for the public application form (on when the secret is set).
+async function checkCaptcha(token: unknown, req: Request) {
+  const secret = env('TURNSTILE_SECRET_KEY');
+  if (!secret) return;
+  const response = typeof token === 'string' ? token.slice(0, 2048) : '';
+  if (!response) throw fail('Please complete the security check.');
+  const form = new URLSearchParams({ secret, response });
+  const ip = req.headers.get('cf-connecting-ip') || req.headers.get('x-forwarded-for')?.split(',')[0]?.trim();
+  if (ip) form.set('remoteip', ip);
+  const r = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', { method: 'POST', body: form, signal: AbortSignal.timeout(10000) })
+    .then((res) => res.json()).catch(() => null);
+  if (!r?.success) throw fail('The security check failed. Please try again.');
+}
+
 async function publicAction(req: Request, body: Row) {
   const action = clean(body.action, 40);
 
@@ -1253,6 +1267,7 @@ async function publicAction(req: Request, body: Row) {
     const campaign = await must(db().from('recruitment_campaigns').select('*').eq('apply_slug', clean(body.slug, 40)).maybeSingle()) as Row;
     if (!campaign || campaign.status !== 'active') throw fail('This position is not open for applications.', 404);
     if (body.consents?.data_processing !== true) throw fail('Please agree to the processing of your information to apply.');
+    await checkCaptcha(body.captcha_token, req);
     const ip = await ipHash(req);
     const hourAgo = new Date(Date.now() - 3600000).toISOString();
     const { count } = await db().from('recruitment_consents').select('id', { count: 'exact', head: true }).eq('ip_hash', ip).eq('source', 'application').eq('kind', 'data_processing').gte('recorded_at', hourAgo);

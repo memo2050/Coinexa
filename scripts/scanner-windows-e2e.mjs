@@ -9,6 +9,7 @@
 //
 // Env: SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_KEY, SCANNER_EXE
 import { createClient } from '@supabase/supabase-js';
+import { signInWithLink } from './test-auth.mjs';
 import { spawn } from 'node:child_process';
 import { appendFileSync, mkdtempSync, readFileSync, rmSync, existsSync } from 'node:fs';
 import net from 'node:net';
@@ -99,7 +100,7 @@ async function main() {
   if (error) throw error;
   userId = u.user.id;
   const client = createClient(URL_, ANON, opts);
-  token = (await client.auth.signInWithPassword({ email, password })).data.session.access_token;
+  token = (await signInWithLink(admin, client, email)).access_token;
   const boot = await fn('manageOrganization', { action: 'bootstrap' });
   orgId = boot.data.organization?.id;
   if (!orgId) throw new Error(`workspace bootstrap failed: ${JSON.stringify(boot.data)}`);

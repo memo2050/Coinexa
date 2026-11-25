@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import Turnstile, { captchaEnabled } from "@/components/Turnstile";
 import { Link } from "react-router-dom";
 import { base44 } from "@/api/base44Client";
 import { Button } from "@/components/ui/button";
@@ -12,6 +13,8 @@ import { toast } from "@/components/ui/use-toast";
 import { postAuthPath, safeReturnTo } from "@/lib/authReturnTo";
 
 export default function Register() {
+  const [captcha, setCaptcha] = useState(null);
+  const [captchaRound, setCaptchaRound] = useState(0);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -29,12 +32,13 @@ export default function Register() {
     }
     setLoading(true);
     try {
-      await base44.auth.register({ email, password });
+      await base44.auth.register({ email, password, captchaToken: captcha });
       setShowOtp(true);
     } catch (err) {
       setError(err.message || "Registration failed");
     } finally {
       setLoading(false);
+      setCaptchaRound((n) => n + 1);
     }
   };
 
@@ -51,13 +55,14 @@ export default function Register() {
       setError(err.message || "Invalid verification code");
     } finally {
       setLoading(false);
+      setCaptchaRound((n) => n + 1);
     }
   };
 
   const handleResend = async () => {
     setError("");
     try {
-      await base44.auth.resendOtp(email);
+      await base44.auth.resendOtp(email, captcha);
       toast({
         title: "Code sent",
         description: "Check your email for the new code.",
@@ -200,7 +205,8 @@ export default function Register() {
             />
           </div>
         </div>
-        <Button type="submit" className="w-full h-12 font-medium" disabled={loading}>
+        <Turnstile onToken={setCaptcha} resetKey={captchaRound} />
+        <Button type="submit" className="w-full h-12 font-medium" disabled={loading || (captchaEnabled && !captcha)}>
           {loading ? (
             <>
               <Loader2 className="w-4 h-4 mr-2 animate-spin" />

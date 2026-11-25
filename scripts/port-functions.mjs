@@ -130,6 +130,12 @@ const PATCHES = [
     "  } catch (error) {\n    if (recordedEventId) await serviceClient().from('stripe_events').delete().eq('id', recordedEventId).then(() => null, () => null);\n    console.error('stripeWebhook failed', error?.message);\n",
     "Individual agent hires: once-only events, agent-hire sync; legacy workspace plans unchanged.",
   ],
+  [
+    'shared/adminGuard.ts',
+    "  if (user.role !== 'admin') {\n    return { response: Response.json({ error: 'Super admin access only.' }, { status: 403 }) };\n  }\n",
+    "  if (user.role !== 'admin') {\n    return { response: Response.json({ error: 'Super admin access only.' }, { status: 403 }) };\n  }\n  // Two-step sign-in is required for the admin console. The token was just verified by\n  // auth.me(), so its assurance level (aal) can be read from it.\n  if (Deno.env.get('ADMIN_MFA_REQUIRED') !== 'false') {\n    let aal = '';\n    try {\n      const token = (req.headers.get('Authorization') || '').replace(/^Bearer\\s+/i, '');\n      aal = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))).aal || '';\n    } catch { /* treated as not verified */ }\n    if (aal !== 'aal2') {\n      return { response: Response.json({ error: 'Turn on two-step sign-in (Account → Security) to use the admin console.', code: 'mfa_required' }, { status: 403 }) };\n    }\n  }\n",
+    'Security: platform admins must sign in with two-step sign-in (TOTP) to use any admin endpoint.',
+  ],
 ];
 
 function rewrite(code, fromShared) {

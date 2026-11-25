@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import Turnstile, { captchaEnabled } from "@/components/Turnstile";
 import { Link } from "react-router-dom";
 import { base44 } from "@/api/base44Client";
 import { Button } from "@/components/ui/button";
@@ -10,6 +11,8 @@ import GoogleSignIn from "@/components/GoogleSignIn";
 import { postAuthPath, safeReturnTo } from "@/lib/authReturnTo";
 
 export default function Login() {
+  const [captcha, setCaptcha] = useState(null);
+  const [captchaRound, setCaptchaRound] = useState(0);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -23,12 +26,13 @@ export default function Login() {
     setError("");
     setLoading(true);
     try {
-      await base44.auth.loginViaEmailPassword(email, password);
+      await base44.auth.loginViaEmailPassword(email, password, captcha);
       window.location.href = postAuthPath();
     } catch (err) {
       setError(err.message || "Invalid email or password");
     } finally {
       setLoading(false);
+      setCaptchaRound((n) => n + 1);
     }
   };
 
@@ -100,7 +104,8 @@ export default function Login() {
             />
           </div>
         </div>
-        <Button type="submit" className="w-full h-12 font-medium" disabled={loading}>
+        <Turnstile onToken={setCaptcha} resetKey={captchaRound} />
+        <Button type="submit" className="w-full h-12 font-medium" disabled={loading || (captchaEnabled && !captcha)}>
           {loading ? (
             <>
               <Loader2 className="w-4 h-4 mr-2 animate-spin" />

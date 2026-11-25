@@ -5,12 +5,15 @@ import Nav from '@/components/site/Nav';
 import Footer from '@/components/site/Footer';
 import { recruitment, uploadCv, errorText } from '@/api/recruitment';
 import { ErrorNote, Field, Loading, Panel, inputCls, money, primaryBtn } from '@/components/recruitment/ui';
+import Turnstile, { captchaEnabled } from '@/components/Turnstile';
 
 export default function ApplyPage() {
   const { slug } = useParams();
   const [job, setJob] = useState(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [captcha, setCaptcha] = useState(null);
+  const [captchaRound, setCaptchaRound] = useState(0);
   const [done, setDone] = useState(null);
   const [cv, setCv] = useState(null);
   const [form, setForm] = useState({
@@ -31,7 +34,7 @@ export default function ApplyPage() {
     setError('');
     try {
       const { email, phone, ...candidate } = form;
-      const r = await recruitment('apply_submit', { slug, consents, candidate: { ...candidate, contact: { email, phone } } });
+      const r = await recruitment('apply_submit', { slug, consents, captcha_token: captcha, candidate: { ...candidate, contact: { email, phone } } });
       const token = r.portal_url.split('/r/')[1];
       if (cv && token) await uploadCv(token, cv).catch((err) => setError(`Application sent, but the CV upload failed: ${errorText(err)}`));
       setDone(r.portal_url);
@@ -39,6 +42,7 @@ export default function ApplyPage() {
       setError(errorText(err));
     } finally {
       setBusy(false);
+      setCaptchaRound((n) => n + 1);
     }
   };
 
@@ -112,7 +116,8 @@ export default function ApplyPage() {
                       ))}
                       <p className="text-[0.7rem] text-slate-500">Applying is not a contract. You can withdraw or erase your data at any time from the personal link you receive.</p>
                     </div>
-                    <button type="submit" className={`${primaryBtn} mt-5`} disabled={busy}>{busy && <Loader2 className="h-4 w-4 animate-spin" />} Send application</button>
+                    <div className="mt-4"><Turnstile onToken={setCaptcha} resetKey={captchaRound} action="apply" /></div>
+                    <button type="submit" className={`${primaryBtn} mt-5`} disabled={busy || (captchaEnabled && !captcha)}>{busy && <Loader2 className="h-4 w-4 animate-spin" />} Send application</button>
                   </Panel>
                 </form>
               )}

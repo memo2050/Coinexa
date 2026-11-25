@@ -29,6 +29,9 @@ env:
   STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
   GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
   GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+  # Cloudflare Turnstile (free CAPTCHA). The site key is public; the secret stays server-side.
+  TURNSTILE_SITE_KEY: ${{ secrets.TURNSTILE_SITE_KEY }}
+  TURNSTILE_SECRET_KEY: ${{ secrets.TURNSTILE_SECRET_KEY }}
   FTP_HOST: ${{ secrets.HOSTINGER_FTP_HOST }}
   FTP_USER: ${{ secrets.HOSTINGER_FTP_USER }}
   FTP_PASSWORD: ${{ secrets.HOSTINGER_FTP_PASSWORD }}
@@ -114,6 +117,13 @@ jobs:
           if [ -z "$GOOGLE_CLIENT_ID" ]; then
             sed -i '/^\[auth.external.google\]/,/^\[/ s/^enabled = true/enabled = false/' supabase/config.toml
           fi
+          # CAPTCHA only when both Turnstile keys exist (a site without the widget could not sign in).
+          if [ -z "$TURNSTILE_SECRET_KEY" ] || [ -z "$TURNSTILE_SITE_KEY" ]; then
+            sed -i '/^\[auth.captcha\]/,/^secret = /d' supabase/config.toml
+            echo "CAPTCHA: off (Turnstile keys not set)"
+          else
+            echo "CAPTCHA: on (Turnstile)"
+          fi
           supabase config push --remote="$SUPABASE_PROJECT_REF" --yes
 
       - name: Function secrets
@@ -140,6 +150,7 @@ jobs:
             [ -n "$OWNER_EMAIL" ] && echo "EMAIL_REDIRECT_TO=${OWNER_EMAIL}"
             [ -n "$ANTHROPIC_API_KEY" ] && echo "ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}"
             [ -n "$RESEND_API_KEY" ] && echo "RESEND_API_KEY=${RESEND_API_KEY}"
+            [ -n "$TURNSTILE_SECRET_KEY" ] && [ -n "$TURNSTILE_SITE_KEY" ] && echo "TURNSTILE_SECRET_KEY=${TURNSTILE_SECRET_KEY}"
             [ -n "$STRIPE_SECRET_KEY" ] && echo "STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY}"
             [ -n "$NEW_DATA_KEY" ] && echo "RECRUITMENT_DATA_KEY=${NEW_DATA_KEY}"
             [ -n "$NEW_SCAN_KEY" ] && echo "SECURITY_DATA_KEY=${NEW_SCAN_KEY}"
@@ -158,7 +169,7 @@ jobs:
           npm ci
           ANON=$(supabase projects api-keys --remote="$SUPABASE_PROJECT_REF" -o json | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const k=JSON.parse(s);const a=k.find(x=>x.name==='anon')||k.find(x=>x.type==='publishable');process.stdout.write(a.api_key)})")
           echo "::add-mask::$ANON"
-          VITE_SUPABASE_URL="https://${SUPABASE_PROJECT_REF}.supabase.co" VITE_SUPABASE_ANON_KEY="$ANON" VITE_APP_ID=coinexa-staging npm run build
+          VITE_SUPABASE_URL="https://${SUPABASE_PROJECT_REF}.supabase.co" VITE_SUPABASE_ANON_KEY="$ANON" VITE_APP_ID=coinexa-staging VITE_TURNSTILE_SITE_KEY="$([ -n "$TURNSTILE_SECRET_KEY" ] && echo "$TURNSTILE_SITE_KEY")" npm run build
           # The bundle must never contain a server-side secret.
           ! grep -rqE "service_role|sk_test_|sk_live_|sk-ant-|re_[A-Za-z0-9]{20,}" dist/
 

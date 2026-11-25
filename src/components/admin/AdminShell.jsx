@@ -1,4 +1,6 @@
+import { useEffect, useState } from 'react';
 import { Link, NavLink, Outlet } from 'react-router-dom';
+import { mfa } from '@/api/base44Client';
 import {
   Activity,
   ArrowLeft,
@@ -33,6 +35,11 @@ const linkClass = ({ isActive }) =>
 
 export default function AdminShell() {
   const { user } = useAuth();
+  // The admin console requires two-step sign-in (also enforced by every admin endpoint).
+  const [level, setLevel] = useState(null);
+  useEffect(() => {
+    mfa.level().then((l) => setLevel(l.current)).catch(() => setLevel('aal1'));
+  }, []);
 
   if (user && user.role !== 'admin') {
     return (
@@ -50,6 +57,23 @@ export default function AdminShell() {
             className="mt-4 inline-flex items-center gap-1.5 rounded-full border border-white/10 px-4 py-2 text-xs font-semibold text-slate-200 hover:border-white/25 hover:text-white"
           >
             <ArrowLeft className="h-3.5 w-3.5" /> Back to your agents
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  if (user && level && level !== 'aal2') {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#05070a] px-5">
+        <div className="max-w-md rounded-2xl border border-amber-400/25 bg-amber-400/[0.06] p-6 text-center">
+          <ShieldCheck className="mx-auto h-6 w-6 text-amber-300" />
+          <h1 className="mt-3 font-heading text-lg font-semibold text-white">Turn on two-step sign-in</h1>
+          <p className="mt-2 text-sm leading-relaxed text-slate-400">
+            The admin console requires an authenticator-app code at sign-in. Set it up once, then come back here.
+          </p>
+          <Link to="/account/security" className="mt-4 inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-blue-600 via-sky-500 to-cyan-400 px-4 py-2 text-xs font-semibold text-white">
+            Set up two-step sign-in
           </Link>
         </div>
       </div>

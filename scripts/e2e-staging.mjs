@@ -9,6 +9,7 @@ import { createClient } from '@supabase/supabase-js';
 import { makeEntities } from '../src/api/entityQuery.js';
 import { appendFileSync } from 'node:fs';
 import { simulatedPc, sampleScan } from './sim-scanner.mjs';
+import { signInWithLink, enrollTotp } from './test-auth.mjs';
 
 const URL_ = process.env.SUPABASE_URL;
 const ANON = process.env.SUPABASE_ANON_KEY;
@@ -61,9 +62,8 @@ async function makeUser(tag) {
   if (error) throw error;
   created.users.push(data.user.id);
   const client = createClient(URL_, ANON, opts);
-  const { data: session, error: signInError } = await client.auth.signInWithPassword({ email, password });
-  if (signInError) throw signInError;
-  return { id: data.user.id, email, client, token: session.session.access_token, entities: makeEntities(client) };
+  const session = await signInWithLink(admin, client, email);
+  return { id: data.user.id, email, client, token: session.access_token, entities: makeEntities(client) };
 }
 
 async function main() {
@@ -259,6 +259,16 @@ async function main() {
     return bad.length ? { fail: `not refused: ${bad.join(", ")}` } : true;
   });
   await admin.from('profiles').update({ role: 'admin' }).eq('id', A.id);
+  await check('admin', 'the admin console requires two-step sign-in (password-only admin refused)', async () => {
+    const r = await call(A.token, 'adminOverview', {});
+    return r.status === 403 && r.data.code === 'mfa_required' ? r.data.error : { fail: `status ${r.status} ${JSON.stringify(r.data).slice(0, 150)}` };
+  });
+  await check('admin', 'after setting up an authenticator and entering its code, the admin console opens', async () => {
+    const mfa = await enrollTotp(A.client);
+    A.token = mfa.token;
+    const r = await call(A.token, 'adminOverview', {});
+    return r.status === 200 ? 'TOTP verified; session at aal2' : { fail: `status ${r.status} ${JSON.stringify(r.data).slice(0, 150)}` };
+  });
   for (const fn of adminFns) {
     await check('admin', `${fn} works for a platform admin`, async () => {
       const r = await call(A.token, fn, {});
@@ -749,6 +759,7 @@ async function recruitmentChecks(A, B) {
 
   // Negotiation through the candidate portal.
   let monaToken;
+  let captchaOn = false;
   await check('recruitment', 'portal: candidate sees the job and the $120 opening offer', async () => {
     monaToken = await portalLinkFor(mona.id);
     const r = await R(null, { action: 'portal_get', token: monaToken });
@@ -806,11 +817,23 @@ async function recruitmentChecks(A, B) {
     const noConsent = await R(null, { ...base, consents: { data_processing: false } });
     if (noConsent.status !== 400) throw new Error(`without consent: ${noConsent.status}`);
     const r = await R(null, { ...base, consents: { data_processing: true, share_with_company: false, contact: true } });
-    if (r.status !== 200 || !r.data.portal_url) throw new Error(`status ${r.status} ${JSON.stringify(r.data)}`);
-    applicantToken = r.data.portal_url.split('/r/')[1];
+    if (r.status === 400 && /security check/i.test(r.data.error || '')) {
+      // CAPTCHA is on: an application without a solved check is refused. The rest of the
+      // flow continues with the applicant recorded as after a passed check.
+      captchaOn = true;
+      const { data: cand } = await admin.from('recruitment_candidates').insert({ organization_id: campaign.organization_id, campaign_id: campaign.id,
+        full_name: 'Sara Applicant', country: 'Egypt', city: 'Giza', experience_years: 3, skills: ['Windows', 'Active Directory'],
+        profile_text: 'Three years of desktop support.', source: 'application', lawful_basis: 'consent', status: 'interested' }).select('id').single();
+      await admin.from('recruitment_consents').insert(['data_processing', 'share_with_company', 'contact'].map((kind) => ({
+        organization_id: campaign.organization_id, candidate_id: cand.id, kind, granted: kind !== 'share_with_company', text_version: 'recruitment-consent-v1', source: 'application' })));
+      applicantToken = await portalLinkFor(cand.id);
+    } else {
+      if (r.status !== 200 || !r.data.portal_url) throw new Error(`status ${r.status} ${JSON.stringify(r.data)}`);
+      applicantToken = r.data.portal_url.split('/r/')[1];
+    }
     const { data: consents } = await admin.from('recruitment_consents').select('kind, granted').in('candidate_id',
       (await admin.from('recruitment_candidates').select('id').eq('campaign_id', campaign.id).eq('full_name', 'Sara Applicant')).data.map((c) => c.id));
-    return consents.length === 3 ? 'consent records: ' + consents.map((c) => `${c.kind}=${c.granted}`).join(', ') : { fail: JSON.stringify(consents) };
+    return consents.length === 3 ? `${captchaOn ? 'CAPTCHA on: unsolved application refused; ' : ''}consent records: ` + consents.map((c) => `${c.kind}=${c.granted}`).join(', ') : { fail: JSON.stringify(consents) };
   });
   await check('recruitment', 'CV upload: real PDF accepted, a disguised file refused', async () => {
     const send = (bytes, name) => {

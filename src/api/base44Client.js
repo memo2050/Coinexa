@@ -98,13 +98,13 @@ const auth = {
   async isAuthenticated() {
     return Boolean(await session());
   },
-  async loginViaEmailPassword(email, password) {
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+  async loginViaEmailPassword(email, password, captchaToken) {
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password, options: captchaToken ? { captchaToken } : undefined });
     if (error) throw withStatus(error.message === 'Email not confirmed' ? 'Please verify your email first.' : 'Invalid email or password', 401);
     return { access_token: data.session?.access_token, user: data.user };
   },
-  async register({ email, password }) {
-    const { data, error } = await supabase.auth.signUp({ email, password, options: { emailRedirectTo: absolute('/agents') } });
+  async register({ email, password, captchaToken }) {
+    const { data, error } = await supabase.auth.signUp({ email, password, options: { emailRedirectTo: absolute('/agents'), ...(captchaToken ? { captchaToken } : {}) } });
     if (error) throw withStatus(error.message, 400);
     // Supabase reports an existing address as success with no identities.
     if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
@@ -117,16 +117,16 @@ const auth = {
     if (error) throw withStatus('Invalid or expired verification code', 400);
     return { access_token: data.session?.access_token, user: data.user };
   },
-  async resendOtp(email) {
-    const { error } = await supabase.auth.resend({ type: 'signup', email });
+  async resendOtp(email, captchaToken) {
+    const { error } = await supabase.auth.resend({ type: 'signup', email, options: captchaToken ? { captchaToken } : undefined });
     if (error) throw withStatus(error.message, 429);
   },
   async loginWithProvider(provider, returnTo) {
     const { error } = await supabase.auth.signInWithOAuth({ provider, options: { redirectTo: absolute(returnTo || '/agents') } });
     if (error) throw withStatus(error.message, 400);
   },
-  async resetPasswordRequest(email) {
-    const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: absolute('/reset-password') });
+  async resetPasswordRequest(email, captchaToken) {
+    const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: absolute('/reset-password'), ...(captchaToken ? { captchaToken } : {}) });
     if (error) throw withStatus(error.message, 429);
   },
   // The reset email links to /reset-password?token=<token hash>.
@@ -175,3 +175,40 @@ const app = {
 };
 
 export const base44 = { entities, functions: { invoke }, auth, integrations, app };
+
+
+// Two-step sign-in (authenticator app, TOTP) on Supabase Auth.
+export const mfa = {
+  // { current: 'aal1'|'aal2', next: 'aal1'|'aal2' } — next aal2 with current aal1 = a code is needed.
+  async level() {
+    const { data, error } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+    if (error) throw error;
+    return { current: data.currentLevel, next: data.nextLevel };
+  },
+  async factors() {
+    const { data, error } = await supabase.auth.mfa.listFactors();
+    if (error) throw error;
+    return (data?.totp || []).filter((f) => f.status === 'verified');
+  },
+  async enroll() {
+    // Remove abandoned, unverified setups first so a fresh QR code can be issued.
+    const { data: all } = await supabase.auth.mfa.listFactors();
+    for (const f of all?.all || []) if (f.status !== 'verified') await supabase.auth.mfa.unenroll({ factorId: f.id });
+    const { data, error } = await supabase.auth.mfa.enroll({ factorType: 'totp', friendlyName: `Authenticator ${new Date().toISOString().slice(0, 10)}` });
+    if (error) throw error;
+    return { factorId: data.id, qr: data.totp.qr_code, secret: data.totp.secret };
+  },
+  async verify(factorId, code) {
+    const { error } = await supabase.auth.mfa.challengeAndVerify({ factorId, code: String(code || '').replace(/\s/g, '') });
+    if (error) throw withStatus('That code is not valid. Use the current 6-digit code from your app.', 400);
+  },
+  async challenge(code) {
+    const [factor] = await mfa.factors();
+    if (!factor) throw withStatus('No authenticator is set up.', 400);
+    await mfa.verify(factor.id, code);
+  },
+  async remove(factorId) {
+    const { error } = await supabase.auth.mfa.unenroll({ factorId });
+    if (error) throw withStatus('Two-step sign-in could not be turned off. Sign in again and retry.', 400);
+  },
+};

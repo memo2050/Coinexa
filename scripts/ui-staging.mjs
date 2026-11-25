@@ -7,6 +7,7 @@
 //
 // Env: SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_KEY, BASE_URL (preview server)
 import { simulatedPc, sampleScan } from './sim-scanner.mjs';
+import { signInWithLink, enrollTotp } from './test-auth.mjs';
 import { chromium } from 'playwright';
 import { createClient } from '@supabase/supabase-js';
 import { mkdirSync, writeFileSync, appendFileSync } from 'node:fs';
@@ -105,18 +106,30 @@ async function main() {
       await anonCtx.close();
     }
 
-    // Sign in through the real form.
-    const ctx = await browser.newContext({ viewport: VIEWPORTS.desktop });
-    const page = await ctx.newPage();
-    await page.goto(`${BASE}/login`, { waitUntil: 'networkidle' });
-    await page.fill('input[type="email"]', email);
-    await page.fill('input[type="password"]', password);
-    await page.click('button[type="submit"]');
-    await page.waitForURL((u) => !u.pathname.startsWith('/login'), { timeout: 30000 }).catch(() => {});
-    const afterLogin = new URL(page.url()).pathname;
-    rows.push({ role: 'user', vp: 'desktop', path: 'LOGIN FORM', finalPath: afterLogin, heading: '', ms: 0, blank: false, consoleErrors: afterLogin.startsWith('/login') ? ['login did not leave /login'] : [], failed: [] });
-    const state = await ctx.storageState();
-    await ctx.close();
+    // Sign in through the real form, unless CAPTCHA is on (a test cannot solve it): then
+    // sign in with a server-issued one-time link and give the browser that session.
+    const storageKey = `sb-${new URL(URL_).hostname.split('.')[0]}-auth-token`;
+    const sessionState = (session) => ({ cookies: [], origins: [{ origin: BASE, localStorage: [{ name: storageKey, value: JSON.stringify(session) }] }] });
+    const probe = await createClient(URL_, process.env.SUPABASE_ANON_KEY, { auth: { persistSession: false } }).auth.signInWithPassword({ email, password });
+    const captchaOn = Boolean(probe.error && /captcha/i.test(probe.error.message));
+    let state;
+    if (!captchaOn) {
+      const ctx = await browser.newContext({ viewport: VIEWPORTS.desktop });
+      const page = await ctx.newPage();
+      await page.goto(`${BASE}/login`, { waitUntil: 'networkidle' });
+      await page.fill('input[type="email"]', email);
+      await page.fill('input[type="password"]', password);
+      await page.click('button[type="submit"]');
+      await page.waitForURL((u) => !u.pathname.startsWith('/login'), { timeout: 30000 }).catch(() => {});
+      const afterLogin = new URL(page.url()).pathname;
+      rows.push({ role: 'user', vp: 'desktop', path: 'LOGIN FORM', finalPath: afterLogin, heading: '', ms: 0, blank: false, consoleErrors: afterLogin.startsWith('/login') ? ['login did not leave /login'] : [], failed: [] });
+      state = await ctx.storageState();
+      await ctx.close();
+    } else {
+      const c = createClient(URL_, process.env.SUPABASE_ANON_KEY, { auth: { persistSession: false } });
+      state = sessionState(await signInWithLink(admin, c, email));
+      rows.push({ role: 'user', vp: 'desktop', path: 'LOGIN FORM (CAPTCHA on: password sign-in refused without a solved check)', finalPath: '/login', heading: '', ms: 0, blank: false, consoleErrors: [], failed: [] });
+    }
 
     // Give the account a workspace and one agent so pages have content.
     const { data: ws } = await admin.from('organizations').insert({ name: 'UI Test Workspace', plan: 'starter', status: 'active' }).select('id').single();
@@ -180,8 +193,13 @@ async function main() {
     }
 
     await admin.from('profiles').update({ role: 'admin' }).eq('id', userId);
+    // The admin console requires two-step sign-in: enroll an authenticator and use the
+    // resulting aal2 session for the admin pages.
+    const adminClient = createClient(URL_, process.env.SUPABASE_ANON_KEY, { auth: { persistSession: false } });
+    await signInWithLink(admin, adminClient, email);
+    const adminState = sessionState((await enrollTotp(adminClient)).session);
     for (const [vp, viewport] of Object.entries(VIEWPORTS)) {
-      const adminCtx = await browser.newContext({ viewport, isMobile: !!viewport.isMobile, hasTouch: !!viewport.hasTouch, storageState: state });
+      const adminCtx = await browser.newContext({ viewport, isMobile: !!viewport.isMobile, hasTouch: !!viewport.hasTouch, storageState: adminState });
       for (const p of ADMIN) await visit(adminCtx, 'admin', vp, p);
       await adminCtx.close();
     }

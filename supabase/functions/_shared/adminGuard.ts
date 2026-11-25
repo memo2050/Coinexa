@@ -15,6 +15,18 @@ export async function adminContext(req) {
   if (user.role !== 'admin') {
     return { response: Response.json({ error: 'Super admin access only.' }, { status: 403 }) };
   }
+  // Two-step sign-in is required for the admin console. The token was just verified by
+  // auth.me(), so its assurance level (aal) can be read from it.
+  if (Deno.env.get('ADMIN_MFA_REQUIRED') !== 'false') {
+    let aal = '';
+    try {
+      const token = (req.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '');
+      aal = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))).aal || '';
+    } catch { /* treated as not verified */ }
+    if (aal !== 'aal2') {
+      return { response: Response.json({ error: 'Turn on two-step sign-in (Account → Security) to use the admin console.', code: 'mfa_required' }, { status: 403 }) };
+    }
+  }
 
   return { base44, user, service: base44.asServiceRole };
 }
