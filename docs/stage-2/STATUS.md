@@ -40,10 +40,17 @@ Typical AI test cost: about $0.05 per run, about $0.25 with web-search research.
 7. Email templates loaded the logo from Base44's media host; it now comes from the site itself.
 8. Admin "Estimated AI cost: No Rate Configured" replaced by real spend against the monthly cap (new `adminAiSpend`; failed AI calls keep their error message for diagnosis).
 
+## Agent catalogue (24 Nov)
+
+The 17 agents shown on coinexa.net/agents were copied (definitions only: role, goals, workflow, knowledge, tools,
+permissions, safety rules, instructions, status) into the owner's staging workspace by `seed-agents.yml`.
+No runs, history or users were copied. The QA probe agent was left out. A graph-builder bug from the original
+app (5 agents showed "The workflow could not be prepared") is fixed, with a regression test.
+
 ## Remaining owner steps (need your accounts)
 
 1. ~~Hostinger FTP~~ done 24 Nov (host and user in `deploy/staging.env`, password as a GitHub secret).
-2. Resend (free) → `RESEND_API_KEY`. Enables sign-up codes, password reset, enquiry emails.
+2. ~~Resend~~ done 24 Nov.
 3. Stripe test secret key (`sk_test_…`) → `STRIPE_SECRET_KEY`. Then the Stripe test setup creates the test prices and webhook.
 4. Optional: Google OAuth → `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`.
 5. Sign up on staging with `ramyusa2030@gmail.com`, then approve the owner setup (Platform Admin).
