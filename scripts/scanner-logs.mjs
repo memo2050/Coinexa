@@ -20,6 +20,10 @@ async function q(sql) {
   return (j.result || []).reverse();
 }
 
+// Column names of the unified logs table (printed once; no values).
+const probe = await q('select * from logs limit 1');
+if (probe[0]) console.log('log columns:', Object.keys(probe[0]).join(', '));
+
 const time = (ts) => {
   const n = Number(ts);
   const d = Number.isFinite(n) ? new Date(n > 1e14 ? n / 1000 : n > 1e11 ? n : n * 1000) : new Date(String(ts).replace(' ', 'T') + (String(ts).endsWith('Z') ? '' : 'Z'));
