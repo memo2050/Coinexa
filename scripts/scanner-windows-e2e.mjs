@@ -26,8 +26,8 @@ const results = [];
 let userId, orgId, token;
 
 const record = (name, ok, detail = '') => {
-  results.push({ name, ok, detail: String(detail).slice(0, 400) });
-  console.log(`${ok ? '✓' : '✗'} ${name}${detail ? ` — ${String(detail).slice(0, 400)}` : ''}`);
+  results.push({ name, ok, detail: String(detail).slice(0, 1500) });
+  console.log(`${ok ? '✓' : '✗'} ${name}${detail ? ` — ${String(detail).slice(0, 1500)}` : ''}`);
 };
 const check = async (name, fn) => {
   try {
@@ -170,7 +170,7 @@ async function main() {
     const ok = scan.authorized_by === 'CI Tester' && host?.ip === me.address && ports[8080]?.product === 'CoinexaTestServer' && ports[8080]?.version === '1.2.3'
       && ports[21]?.product === 'vsFTPd' && ports[21]?.version === '3.0.3';
     return ok ? `${scan.host_count} device, ${scan.open_port_count} open ports: ${host.ports.map((p) => `${p.port}/${p.service || '?'} ${p.product || ''} ${p.version || ''}`.trim()).join('; ')}`
-      : { fail: JSON.stringify({ scan, host, out: r.out.slice(-500) }) };
+      : { fail: `authorized_by=${scan.authorized_by} ip=${host?.ip} ports=${(host?.ports || []).map((p) => `${p.port}:${p.service || ''}:${p.product || ''}:${p.version || ''}:[${p.banner || ''}]`).join(' ')}` };
   });
 
   await check('unattended scan with --confirm-authorized works; a local copy is saved', async () => {
