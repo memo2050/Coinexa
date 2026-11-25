@@ -20,12 +20,16 @@ async function q(sql) {
   return (j.result || []).reverse();
 }
 
-const time = (ts) => new Date(Number(ts) / 1000).toISOString().slice(0, 19) + 'Z';
+const time = (ts) => {
+  const n = Number(ts);
+  const d = Number.isFinite(n) ? new Date(n > 1e14 ? n / 1000 : n > 1e11 ? n : n * 1000) : new Date(String(ts).replace(' ', 'T') + (String(ts).endsWith('Z') ? '' : 'Z'));
+  return Number.isNaN(d.getTime()) ? String(ts) : d.toISOString().slice(0, 19) + 'Z';
+};
 console.log('== securityScan requests (method | status) ==');
-const reqs = await q("select timestamp, event_message from function_edge_logs where event_message like '%/securityScan%' order by timestamp desc limit 100");
+const reqs = await q("select timestamp, event_message from logs where source_name = 'function_edge_logs' and event_message like '%/securityScan%' order by timestamp desc limit 100");
 console.log(`${reqs.length} requests`);
 for (const r of reqs) console.log(time(r.timestamp), mask(String(r.event_message).split('|').slice(0, 2).join('|')));
 console.log('\n== securityScan refusals and errors ==');
-const logs = await q("select timestamp, event_message from function_logs where event_message like '%securityScan%' order by timestamp desc limit 100");
+const logs = await q("select timestamp, event_message from logs where source_name = 'function_logs' and event_message like '%securityScan%' order by timestamp desc limit 100");
 console.log(`${logs.length} lines`);
 for (const r of logs) console.log(time(r.timestamp), mask(r.event_message));
