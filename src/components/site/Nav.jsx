@@ -40,7 +40,7 @@ export default function Nav() {
       }`}
     >
       <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-5 py-4 sm:px-8">
-        <a href="#top" className="group flex items-center" aria-label="Coinexa home">
+        <a href="#top" className="group flex shrink-0 items-center" aria-label="Coinexa home">
           <Image
             src={BRAND_LOGO}
             alt="Coinexa"
