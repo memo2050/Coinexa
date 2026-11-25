@@ -48,11 +48,14 @@ function dataKey() {
   return key;
 }
 
+// actor_id is a user id (uuid); a linked PC has none, so it is recorded as null with
+// the PC named in actor_email ("pc:<name>").
 async function audit(orgId: string, actor: { id?: string; email?: string }, action: string, targetType: string, targetId: string, detail: string) {
-  await db().from('audit_logs').insert({
-    organization_id: orgId, actor_id: actor.id || '', actor_email: actor.email || '',
+  const { error } = await db().from('audit_logs').insert({
+    organization_id: orgId, actor_id: actor.id || null, actor_email: actor.email || '',
     action, target_type: targetType, target_id: targetId, detail: detail.slice(0, 400),
   });
+  if (error) console.error('securityScan: audit write failed', action, error.message);
 }
 
 async function companyContext(req: Request) {

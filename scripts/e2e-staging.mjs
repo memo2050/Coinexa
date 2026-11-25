@@ -31,8 +31,11 @@ const record = (area, name, ok, detail = '') => {
 const check = async (area, name, fn) => {
   try {
     const out = await fn();
+    // A check passes only by returning true or a detail string. Returning false or
+    // { fail: detail } is a failure (a returned failure text must never count as a pass).
     if (out === 'skip' || (out && out.skip)) record(area, name, 'skip', out.detail || '');
-    else record(area, name, out !== false, typeof out === 'string' ? out : '');
+    else if (out && typeof out === 'object' && 'fail' in out) record(area, name, false, typeof out.fail === 'string' ? out.fail : JSON.stringify(out.fail));
+    else record(area, name, out !== false && out !== undefined && out !== null, typeof out === 'string' ? out : '');
   } catch (error) {
     record(area, name, false, error?.message || error);
   }
@@ -177,7 +180,7 @@ async function main() {
     const chat = await call(B.token, 'chatWithAgent', { agentId: agentA.id, message: 'hello' });
     const flow = await call(B.token, 'agentWorkflow', { agentId: agentA.id, action: 'toggle', enabled: false });
     const ok = [run, chat, flow].every((r) => r.status === 403 || r.status === 404);
-    return ok ? true : `statuses ${run.status}/${chat.status}/${flow.status}`;
+    return ok ? true : { fail: `statuses ${run.status}/${chat.status}/${flow.status}` };
   });
   await check('isolation', 'signed-out visitors cannot read any table', async () => {
     const anon = createClient(URL_, ANON, opts);
@@ -189,7 +192,7 @@ async function main() {
   });
   await check('isolation', 'signed-out visitors are refused by member functions', async () => {
     const r = await call(null, 'runAgentTask', { agentId: agentA.id, task: 'x' });
-    return r.status === 401 ? true : `status ${r.status}`;
+    return r.status === 401 ? true : { fail: `status ${r.status}` };
   });
 
   // ---------------- Storage ----------------
@@ -242,7 +245,7 @@ async function main() {
     const forged = await post({ 'stripe-signature': `t=${Math.floor(Date.now() / 1000)},v1=${'ab'.repeat(32)}` });
     const { data } = await admin.from('organizations').select('plan').eq('id', orgA).single();
     if (unsigned.status !== 400 || forged.status !== 400) return `statuses ${unsigned.status}/${forged.status}`;
-    return data.plan !== 'studio_retainer' ? true : 'plan changed!';
+    return data.plan !== 'studio_retainer' ? true : { fail: 'plan changed!' };
   });
 
   // ---------------- Admin functions ----------------
@@ -253,7 +256,7 @@ async function main() {
       const r = await call(B.token, fn, {});
       if (r.status !== 403) bad.push(`${fn}:${r.status}`);
     }
-    return bad.length ? `not refused: ${bad.join(', ')}` : true;
+    return bad.length ? { fail: `not refused: ${bad.join(", ")}` } : true;
   });
   await admin.from('profiles').update({ role: 'admin' }).eq('id', A.id);
   for (const fn of adminFns) {
@@ -266,7 +269,7 @@ async function main() {
   }
   await check('admin', 'bootstrapOwnerWorkspace dry run (changes nothing)', async () => {
     const r = await call(A.token, 'bootstrapOwnerWorkspace', {});
-    return r.status === 200 && r.data.dry_run === true ? true : `status ${r.status} ${JSON.stringify(r.data).slice(0, 150)}`;
+    return r.status === 200 && r.data.dry_run === true ? true : { fail: `status ${r.status} ${JSON.stringify(r.data).slice(0, 150)}` };
   });
   await admin.from('profiles').update({ role: 'user' }).eq('id', A.id);
 
@@ -337,7 +340,7 @@ async function main() {
     const { data: rep } = await admin.from('research_reports').select('id').eq('created_by_id', B.id).limit(1).maybeSingle();
     if (!rep) return { skip: true, detail: 'no report to export' };
     const r = await call(B.token, 'exportResearchXlsx', { report_id: rep.id, reportId: rep.id });
-    return r.status === 200 ? `${r.ms} ms` : `status ${r.status} ${JSON.stringify(r.data).slice(0, 200)}`;
+    return r.status === 200 ? `${r.ms} ms` : { fail: `status ${r.status} ${JSON.stringify(r.data).slice(0, 200)}` };
   });
   await check('ai', 'every AI call is costed in the ai_usage ledger', async () => {
     const { data } = await admin.from('ai_usage').select('cost_usd, ok, function_name, model, error').in('user_id', [A.id, B.id]);
@@ -368,7 +371,7 @@ async function securityChecks(A, B, orgA) {
   let code;
   await check('security-scan', 'only signed-in workspace users reach company actions', async () => {
     const r = await S(null, { action: 'overview' });
-    return r.status === 401 ? true : `status ${r.status}`;
+    return r.status === 401 ? true : { fail: `status ${r.status}` };
   });
   await check('security-scan', 'owner creates a one-time linking code (only its hash is stored)', async () => {
     const r = await S(A.token, { action: 'createPairingCode' });
@@ -376,27 +379,27 @@ async function securityChecks(A, B, orgA) {
     code = r.data.code;
     const { data } = await admin.from('security_pairing_codes').select('code_hash').eq('expires_at', r.data.expires_at);
     const stored = JSON.stringify(data);
-    return /^[A-Z2-9]{5}-[A-Z2-9]{5}$/.test(code) && !stored.includes(code.replace('-', '')) ? `code issued, expires ${r.data.expires_at}` : stored;
+    return /^[A-Z2-9]{5}-[A-Z2-9]{5}$/.test(code) && !stored.includes(code.replace('-', '')) ? `code issued, expires ${r.data.expires_at}` : { fail: stored };
   });
   const pc = await simulatedPc(URL_, ANON, `E2E-PC-${runId}`);
   await check('security-scan', 'a linking request signed with a different key is refused', async () => {
     const other = await simulatedPc(URL_, ANON, 'X');
     const r = await fetch(`${URL_}/functions/v1/securityScan`, { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: ANON },
       body: JSON.stringify({ action: 'device_pair', code, public_key: pc.publicKey, device_name: pc.name, signature: await other.sign(`coinexa-scan-pair-v1\n${code.replace('-', '')}\n${pc.publicKey}\n${pc.name}`) }) });
-    return r.status === 401 ? true : `status ${r.status}`;
+    return r.status === 401 ? true : { fail: `status ${r.status}` };
   });
   await check('security-scan', 'PC links with the code; the code cannot be used twice', async () => {
     const r = await pc.link(code);
     if (r.status !== 200) throw new Error(`${r.status} ${JSON.stringify(r.data).slice(0, 200)}`);
     const again = await (await simulatedPc(URL_, ANON, 'SECOND')).link(code);
     const { data } = await admin.from('security_devices').select('organization_id, public_key').eq('id', pc.deviceId).single();
-    return again.status === 401 && data.organization_id === orgA && data.public_key === pc.publicKey ? `linked ${pc.deviceId}` : `again ${again.status}`;
+    return again.status === 401 && data.organization_id === orgA && data.public_key === pc.publicKey ? `linked ${pc.deviceId}` : { fail: `again ${again.status}` };
   });
   await check('security-scan', 'another company cannot see or unlink this PC', async () => {
     const code2 = await S(B.token, { action: 'revokeDevice', device_id: pc.deviceId });
     const ov = await S(B.token, { action: 'overview' });
     const leak = (ov.data.devices || []).some((d) => d.id === pc.deviceId);
-    return code2.status === 404 && !leak ? true : `${code2.status} leak=${leak}`;
+    return code2.status === 404 && !leak ? true : { fail: `${code2.status} leak=${leak}` };
   });
 
   let scanId;
@@ -408,35 +411,35 @@ async function securityChecks(A, B, orgA) {
     const { data: scan } = await admin.from('security_scans').select('networks_enc, authorized_by').eq('id', scanId).single();
     const plain = JSON.stringify(hosts) + scan.networks_enc;
     const ok = r.data.devices === 5 && r.data.open_ports === 8 && hosts.length === 5 && !plain.includes('192.168.50') && !plain.includes('office-printer') && hosts.every((h) => h.identity_enc.startsWith('v1:'));
-    return ok ? `5 devices, 8 open ports; authorised by ${scan.authorized_by}` : JSON.stringify(r.data);
+    return ok ? `5 devices, 8 open ports; authorised by ${scan.authorized_by}` : { fail: JSON.stringify(r.data) };
   });
   await check('security-scan', 'replaying the exact same signed upload is refused', async () => {
     const { request, response } = await pc.upload(sampleScan());
     const again = await pc.replay(request);
-    return response.status === 200 && again.status === 409 ? true : `${response.status}/${again.status}`;
+    return response.status === 200 && again.status === 409 ? true : { fail: `${response.status}/${again.status}` };
   });
   await check('security-scan', 'altered scan contents (signature no longer matches) are refused', async () => {
     const real = JSON.stringify(sampleScan());
     const { response } = await pc.upload(real, { payloadOverride: real.replace('"router"', '"evil"') });
-    return response.status === 401 ? true : `status ${response.status}`;
+    return response.status === 401 ? true : { fail: `status ${response.status}` };
   });
   await check('security-scan', 'stale or future timestamps are refused (±5 minutes)', async () => {
     const old = await pc.upload(sampleScan(), { timestamp: new Date(Date.now() - 10 * 60000).toISOString() });
     const future = await pc.upload(sampleScan(), { timestamp: new Date(Date.now() + 10 * 60000).toISOString() });
-    return old.response.status === 401 && future.response.status === 401 ? true : `${old.response.status}/${future.response.status}`;
+    return old.response.status === 401 && future.response.status === 401 ? true : { fail: `${old.response.status}/${future.response.status}` };
   });
   await check('security-scan', 'a request signed by a different key for this PC is refused', async () => {
     const other = await simulatedPc(URL_, ANON, 'X');
     const { response } = await pc.upload(sampleScan(), { signWith: other.sign });
     const unknown = await pc.upload(sampleScan(), { deviceId: 'no-such-device' });
-    return response.status === 401 && unknown.response.status === 401 ? true : `${response.status}/${unknown.response.status}`;
+    return response.status === 401 && unknown.response.status === 401 ? true : { fail: `${response.status}/${unknown.response.status}` };
   });
   await check('security-scan', 'public internet ranges, outside devices and unauthorised scans are refused', async () => {
     const pub = await pc.upload(sampleScan({ networks: [{ cidr: '8.8.8.0/24' }], hosts: [{ ip: '8.8.8.8', ports: [] }] }));
     const outside = await pc.upload(sampleScan({ hosts: [{ ip: '192.168.60.5', ports: [] }] }));
     const unauth = await pc.upload(sampleScan({ authorization: { confirmed: false, confirmed_by: 'x y', statement_version: 'scan-authorization-v1' } }));
     const s = [pub, outside, unauth].map((x) => x.response.status);
-    return s.every((x) => x === 422) ? `${pub.response.data.error}` : s.join('/');
+    return s.every((x) => x === 422) ? `${pub.response.data.error}` : { fail: s.join('/') };
   });
   await check('security-scan', 'owner sees full details; another company cannot open or delete the scan', async () => {
     const mine = await S(A.token, { action: 'getScan', scan_id: scanId });
@@ -444,7 +447,7 @@ async function securityChecks(A, B, orgA) {
     const del = await S(B.token, { action: 'deleteScan', scan_id: scanId });
     const ok = mine.status === 200 && mine.data.hosts[0].ip === '192.168.50.1' && mine.data.hosts[1].hostname === 'office-printer'
       && mine.data.scan.networks[0].cidr === '192.168.50.0/24' && !('nonce' in mine.data.scan) && theirs.status === 404 && del.status === 404;
-    return ok ? true : JSON.stringify({ m: mine.status, t: theirs.status, d: del.status, h: mine.data.hosts?.[0] });
+    return ok ? true : { fail: JSON.stringify({ m: mine.status, t: theirs.status, d: del.status, h: mine.data.hosts?.[0] }) };
   });
   await check('security-scan', 'a workspace member (not admin) sees the scan with addresses hidden', async () => {
     await admin.from('organization_members').update({ member_role: 'member' }).eq('organization_id', orgA).eq('user_id', A.id);
@@ -452,7 +455,7 @@ async function securityChecks(A, B, orgA) {
       const r = await S(A.token, { action: 'getScan', scan_id: scanId });
       const code2 = await S(A.token, { action: 'createPairingCode' });
       const ok = r.status === 200 && r.data.addresses_hidden && r.data.hosts.every((h) => h.ip.endsWith('.x') && !h.mac && !h.hostname) && code2.status === 403;
-      return ok ? `e.g. ${r.data.hosts[0].ip}` : JSON.stringify({ s: r.status, h: r.data.hosts?.[0], c: code2.status });
+      return ok ? `e.g. ${r.data.hosts[0].ip}` : { fail: JSON.stringify({ s: r.status, h: r.data.hosts?.[0], c: code2.status }) };
     } finally {
       await admin.from('organization_members').update({ member_role: 'owner' }).eq('organization_id', orgA).eq('user_id', A.id);
     }
@@ -476,7 +479,7 @@ async function securityChecks(A, B, orgA) {
   await check('security-scan', 'invalid JSON and unknown actions are handled cleanly', async () => {
     const bad = await fetch(`${URL_}/functions/v1/securityScan`, { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: ANON }, body: '{oops' });
     const unknown = await S(A.token, { action: 'nope' });
-    return bad.status === 400 && unknown.status === 400 ? true : `${bad.status}/${unknown.status}`;
+    return bad.status === 400 && unknown.status === 400 ? true : { fail: `${bad.status}/${unknown.status}` };
   });
 }
 
@@ -504,7 +507,7 @@ async function recruitmentChecks(A, B) {
   let campaign;
   await check('recruitment', 'campaign with the initial offer above the maximum is refused', async () => {
     const r = await R(A.token, { action: 'createCampaign', campaign: { title: 'X', country: 'Egypt', initial_offer: 200, max_budget: 150 } });
-    return r.status === 400 ? true : `status ${r.status}`;
+    return r.status === 400 ? true : { fail: `status ${r.status}` };
   });
   await check('recruitment', 'create campaign (3 IT Help Desk technicians, Cairo, up to $150/day, 5 days)', async () => {
     const r = await R(A.token, { action: 'createCampaign', campaign: {
@@ -527,11 +530,11 @@ async function recruitmentChecks(A, B) {
     const ov = await R(B.token, { action: 'overview' });
     const leaks = (ov.data.campaigns || []).some((c) => c.id === campaign.id);
     const ok = [get, add, upd, rep].every((r) => r.status === 404) && !leaks;
-    return ok ? true : `statuses ${get.status}/${add.status}/${upd.status}/${rep.status}, overview leak ${leaks}`;
+    return ok ? true : { fail: `statuses ${get.status}/${add.status}/${upd.status}/${rep.status}, overview leak ${leaks}` };
   });
   await check('recruitment', 'signed-out visitors cannot use company actions', async () => {
     const r = await R(null, { action: 'overview' });
-    return r.status === 401 ? true : `status ${r.status}`;
+    return r.status === 401 ? true : { fail: `status ${r.status}` };
   });
 
   let mona, omar;
@@ -554,7 +557,7 @@ async function recruitmentChecks(A, B) {
     if (r.status !== 200) throw new Error(`status ${r.status}`);
     const { data } = await admin.from('recruitment_candidates').select('id').eq('campaign_id', campaign.id).eq('full_name', 'Omar Test').single();
     omar = data;
-    return r.data.added === 1 && r.data.skipped.length === 1 ? `1 added, skipped: ${r.data.skipped[0]}` : JSON.stringify(r.data);
+    return r.data.added === 1 && r.data.skipped.length === 1 ? `1 added, skipped: ${r.data.skipped[0]}` : { fail: JSON.stringify(r.data) };
   });
 
   // Negotiation through the candidate portal.
@@ -563,11 +566,11 @@ async function recruitmentChecks(A, B) {
     monaToken = await portalLinkFor(mona.id);
     const r = await R(null, { action: 'portal_get', token: monaToken });
     if (r.status !== 200) throw new Error(`status ${r.status}`);
-    return r.data.current_offer === 120 && r.data.job.title === 'IT Help Desk Technician' ? true : JSON.stringify(r.data).slice(0, 200);
+    return r.data.current_offer === 120 && r.data.job.title === 'IT Help Desk Technician' ? true : { fail: JSON.stringify(r.data).slice(0, 200) };
   });
   await check('recruitment', 'portal: a response without consent to data processing is refused', async () => {
     const r = await R(null, { action: 'portal_respond', token: monaToken, response: 'request', amount: 180 });
-    return r.status === 400 ? true : `status ${r.status}`;
+    return r.status === 400 ? true : { fail: `status ${r.status}` };
   });
   await check('recruitment', 'negotiation: asks $180 against a $150 maximum — never offered more than $150, then escalated', async () => {
     const offers = [];
@@ -589,7 +592,7 @@ async function recruitmentChecks(A, B) {
     const a = await R(null, { action: 'portal_respond', token: monaToken, response: 'accept_offer', consents: { data_processing: true } });
     if (a.status !== 200) throw new Error(`accept ${a.status} ${JSON.stringify(a.data)}`);
     const { data } = await admin.from('recruitment_candidates').select('status, final_comp').eq('id', mona.id).single();
-    return data.status === 'agreed' && Number(data.final_comp) === 150 ? true : JSON.stringify(data);
+    return data.status === 'agreed' && Number(data.final_comp) === 150 ? true : { fail: JSON.stringify(data) };
   });
   await check('recruitment', 'candidate asking $140 (within budget) is agreed at $140', async () => {
     const t = await portalLinkFor(omar.id);
@@ -599,11 +602,11 @@ async function recruitmentChecks(A, B) {
       if (last.data.decision?.action === 'accept') break;
     }
     const { data } = await admin.from('recruitment_candidates').select('status, final_comp').eq('id', omar.id).single();
-    return data.status === 'agreed' && Number(data.final_comp) === 140 ? true : JSON.stringify(data);
+    return data.status === 'agreed' && Number(data.final_comp) === 140 ? true : { fail: JSON.stringify(data) };
   });
   await check('recruitment', 'only an agreed candidate can be marked hired', async () => {
     const ok = await R(A.token, { action: 'setCandidateStatus', candidate_id: mona.id, status: 'hired' });
-    return ok.status === 200 ? true : `status ${ok.status}`;
+    return ok.status === 200 ? true : { fail: `status ${ok.status}` };
   });
 
   // Public application with consent + CV, then decline/opt-out and erasure.
@@ -620,7 +623,7 @@ async function recruitmentChecks(A, B) {
     applicantToken = r.data.portal_url.split('/r/')[1];
     const { data: consents } = await admin.from('recruitment_consents').select('kind, granted').in('candidate_id',
       (await admin.from('recruitment_candidates').select('id').eq('campaign_id', campaign.id).eq('full_name', 'Sara Applicant')).data.map((c) => c.id));
-    return consents.length === 3 ? 'consent records: ' + consents.map((c) => `${c.kind}=${c.granted}`).join(', ') : JSON.stringify(consents);
+    return consents.length === 3 ? 'consent records: ' + consents.map((c) => `${c.kind}=${c.granted}`).join(', ') : { fail: JSON.stringify(consents) };
   });
   await check('recruitment', 'CV upload: real PDF accepted, a disguised file refused', async () => {
     const send = (bytes, name) => {
@@ -631,12 +634,12 @@ async function recruitmentChecks(A, B) {
     };
     const good = await send(new TextEncoder().encode('%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF'), 'cv.pdf');
     const bad = await send(new TextEncoder().encode('<script>alert(1)</script>'), 'cv.pdf');
-    return good.status === 200 && bad.status === 400 ? true : `good ${good.status} bad ${bad.status}`;
+    return good.status === 200 && bad.status === 400 ? true : { fail: `good ${good.status} bad ${bad.status}` };
   });
   await check('recruitment', 'contact details are withheld from the company without the candidate’s sharing consent', async () => {
     const { data } = await admin.from('recruitment_candidates').select('id').eq('campaign_id', campaign.id).eq('full_name', 'Sara Applicant').single();
     const r = await R(A.token, { action: 'getCandidate', candidate_id: data.id });
-    return r.status === 200 && r.data.contact_restricted === true && !r.data.candidate.contact && !r.data.cv_url ? true : JSON.stringify({ c: r.data.candidate?.contact, cv: r.data.cv_url });
+    return r.status === 200 && r.data.contact_restricted === true && !r.data.candidate.contact && !r.data.cv_url ? true : { fail: JSON.stringify({ c: r.data.candidate?.contact, cv: r.data.cv_url }) };
   });
   await check('recruitment', 'candidate can decline, opt out and erase their data', async () => {
     const d = await R(null, { action: 'portal_respond', token: applicantToken, response: 'opt_out' });
@@ -644,12 +647,12 @@ async function recruitmentChecks(A, B) {
     const again = await R(null, { action: 'portal_get', token: applicantToken });
     const { data } = await admin.from('recruitment_candidates').select('full_name, contact_enc, cv_path, erased_at, do_not_contact').eq('campaign_id', campaign.id).not('erased_at', 'is', null).single();
     const ok = d.status === 200 && e.status === 200 && again.status === 404 && !data.contact_enc && !data.cv_path && data.do_not_contact;
-    return ok ? true : JSON.stringify({ d: d.status, e: e.status, again: again.status, data });
+    return ok ? true : { fail: JSON.stringify({ d: d.status, e: e.status, again: again.status, data }) };
   });
   await check('recruitment', 'invalid portal link and unknown action are handled cleanly', async () => {
     const bad = await R(null, { action: 'portal_get', token: 'x'.repeat(43) });
     const unknown = await R(A.token, { action: 'nope' });
-    return bad.status === 404 && unknown.status === 400 ? true : `${bad.status}/${unknown.status}`;
+    return bad.status === 404 && unknown.status === 400 ? true : { fail: `${bad.status}/${unknown.status}` };
   });
 
   await check('recruitment', 'dashboard counts, completion rate and filters', async () => {
@@ -658,7 +661,7 @@ async function recruitmentChecks(A, B) {
     const egypt = await R(A.token, { action: 'overview', filters: { country: 'egypt' } });
     const france = await R(A.token, { action: 'overview', filters: { country: 'France' } });
     const ok = t.hired === 1 && t.agreed === 1 && t.completion === 67 && egypt.data.campaigns.length === 1 && france.data.campaigns.length === 0;
-    return ok ? `hired ${t.hired}, agreed ${t.agreed}, completion ${t.completion}%` : JSON.stringify(t);
+    return ok ? `hired ${t.hired}, agreed ${t.agreed}, completion ${t.completion}%` : { fail: JSON.stringify(t) };
   });
   await check('recruitment', 'final report separates hired, agreed and interested; respects contact consent', async () => {
     const r = await R(A.token, { action: 'report', campaign_id: campaign.id });
@@ -666,7 +669,7 @@ async function recruitmentChecks(A, B) {
     const stages = Object.fromEntries(r.data.rows.map((row) => [row.name, row.stage]));
     const ok = stages['Mona Test'] === 'Hired' && stages['Omar Test'].startsWith('Agreed') && !('Sara Applicant' in stages)
       && r.data.csv.split('\r\n')[0].includes('Final negotiated compensation');
-    return ok ? `${r.data.rows.length} rows; ${JSON.stringify(r.data.summary)}` : JSON.stringify(stages);
+    return ok ? `${r.data.rows.length} rows; ${JSON.stringify(r.data.summary)}` : { fail: JSON.stringify(stages) };
   });
 
   // ---------------------------------------------------- written interviews (text only) --
@@ -683,21 +686,21 @@ async function recruitmentChecks(A, B) {
     if (add.status !== 200) throw new Error(`add ${add.status} ${JSON.stringify(add.data).slice(0, 200)}`);
     lina = add.data.candidate;
     const r = await R(A.token, { action: 'inviteToInterview', candidate_id: lina.id });
-    return r.status === 409 ? true : `status ${r.status}`;
+    return r.status === 409 ? true : { fail: `status ${r.status}` };
   });
   await check('interviews', 'questions about protected characteristics are refused', async () => {
     const r = await R(A.token, { action: 'saveInterviewPlan', campaign_id: campaign.id, approve: true,
       questions: [...QUESTIONS, { question: 'Are you married and do you plan to have children soon?', criterion: 'availability' }] });
-    return r.status === 400 ? true : `status ${r.status}`;
+    return r.status === 400 ? true : { fail: `status ${r.status}` };
   });
   await check('interviews', 'another company cannot read or change the plan', async () => {
     const g = await R(B.token, { action: 'getInterviewPlan', campaign_id: campaign.id });
     const s = await R(B.token, { action: 'saveInterviewPlan', campaign_id: campaign.id, questions: QUESTIONS, approve: true });
-    return g.status === 404 && s.status === 404 ? true : `${g.status}/${s.status}`;
+    return g.status === 404 && s.status === 404 ? true : { fail: `${g.status}/${s.status}` };
   });
   await check('interviews', 'manager approves a 3-question plan (no follow-ups for the scripted run)', async () => {
     const r = await R(A.token, { action: 'saveInterviewPlan', campaign_id: campaign.id, questions: QUESTIONS, max_followups: 0, valid_days: 7, approve: true });
-    return r.status === 200 && r.data.plan.status === 'approved' && r.data.plan.questions.length === 3 ? true : `${r.status} ${JSON.stringify(r.data).slice(0, 200)}`;
+    return r.status === 200 && r.data.plan.status === 'approved' && r.data.plan.questions.length === 3 ? true : { fail: `${r.status} ${JSON.stringify(r.data).slice(0, 200)}` };
   });
   let interviewId;
   await check('interviews', 'invite freezes the questions and prepares an invitation draft with the portal link', async () => {
@@ -705,26 +708,26 @@ async function recruitmentChecks(A, B) {
     if (r.status !== 200) throw new Error(`${r.status} ${JSON.stringify(r.data).slice(0, 200)}`);
     interviewId = r.data.interview.id;
     const ok = r.data.interview.status === 'invited' && r.data.message.status === 'draft' && r.data.message.body.includes('{{portal_link}}') && !/voice|phone call/i.test(r.data.message.body.replace('no call or video', ''));
-    return ok ? true : JSON.stringify(r.data).slice(0, 300);
+    return ok ? true : { fail: JSON.stringify(r.data).slice(0, 300) };
   });
   await check('interviews', 'another company cannot invite, read the interview or download the report', async () => {
     const i = await R(B.token, { action: 'inviteToInterview', candidate_id: lina.id });
     const g = await R(B.token, { action: 'getCandidate', candidate_id: lina.id });
     const rep = await R(B.token, { action: 'candidateReport', candidate_id: lina.id });
     const hm = await R(B.token, { action: 'sendHiringReport', candidate_id: lina.id });
-    return [i, g, rep, hm].every((x) => x.status === 404) ? true : [i, g, rep, hm].map((x) => x.status).join('/');
+    return [i, g, rep, hm].every((x) => x.status === 404) ? true : { fail: [i, g, rep, hm].map((x) => x.status).join('/') };
   });
   await check('interviews', 'portal: interview needs explicit consent to an AI-conducted interview', async () => {
     linaToken = await portalLinkFor(lina.id);
     const v = await R(null, { action: 'portal_get', token: linaToken });
     const r = await R(null, { action: 'portal_interview_start', token: linaToken, consents: { data_processing: true } });
-    return v.data.interview?.status === 'invited' && r.status === 400 ? true : `${v.data.interview?.status} ${r.status}`;
+    return v.data.interview?.status === 'invited' && r.status === 400 ? true : { fail: `${v.data.interview?.status} ${r.status}` };
   });
   await check('interviews', 'portal: another candidate’s link cannot reach this interview', async () => {
     const t = await portalLinkFor(omar.id);
     const r = await R(null, { action: 'portal_interview_get', token: t });
     const bad = await R(null, { action: 'portal_interview_get', token: 'y'.repeat(43) });
-    return r.status === 404 && bad.status === 404 ? true : `${r.status}/${bad.status}`;
+    return r.status === 404 && bad.status === 404 ? true : { fail: `${r.status}/${bad.status}` };
   });
   await check('interviews', 'portal: start shows an introduction and question 1; answers move through the questions', async () => {
     const s = await R(null, { action: 'portal_interview_start', token: linaToken, consents: { ai_interview: true, data_processing: true } });
@@ -732,25 +735,25 @@ async function recruitmentChecks(A, B) {
     const a = await R(null, { action: 'portal_interview_answer', token: linaToken, text: 'I check the Wi-Fi or cable, run ipconfig to see if I got a 169.254 address, renew DHCP, then test DNS with nslookup.' });
     const b = await R(null, { action: 'portal_interview_answer', token: linaToken, text: 'Start Outlook in safe mode, then repair Office and recreate the mail profile if needed.' });
     const kinds = b.data.messages.map((m) => m.kind).join(',');
-    return s.data.status === 'in_progress' && b.status === 200 && b.data.current === 3 && kinds === 'intro,question,answer,question,answer,question' ? kinds : `${b.status} ${kinds}`;
+    return s.data.status === 'in_progress' && b.status === 200 && b.data.current === 3 && kinds === 'intro,question,answer,question,answer,question' ? kinds : { fail: `${b.status} ${kinds}` };
   });
   await check('interviews', 'portal: empty answers are refused; consent recorded with the AI-interview kind', async () => {
     const e = await R(null, { action: 'portal_interview_answer', token: linaToken, text: ' ' });
     const { data } = await admin.from('recruitment_consents').select('kind, granted').eq('candidate_id', lina.id).eq('kind', 'ai_interview');
-    return e.status === 400 && data.length === 1 && data[0].granted ? true : `${e.status} ${JSON.stringify(data)}`;
+    return e.status === 400 && data.length === 1 && data[0].granted ? true : { fail: `${e.status} ${JSON.stringify(data)}` };
   });
   await check('interviews', 'company sees the transcript; candidate report includes questions and answers', async () => {
     const g = await R(A.token, { action: 'getCandidate', candidate_id: lina.id });
     const rep = await R(A.token, { action: 'candidateReport', candidate_id: lina.id });
     const ok = g.data.interview?.status === 'in_progress' && g.data.interview_messages.length === 6 && rep.status === 200
       && rep.data.text.includes('Q1. Describe how you would troubleshoot') && rep.data.text.includes('ipconfig') && rep.data.text.includes('hiring decision belongs to the company');
-    return ok ? `${rep.data.text.split('\n').length} report lines` : `${g.data.interview?.status} ${g.data.interview_messages?.length} ${rep.status}`;
+    return ok ? `${rep.data.text.split('\n').length} report lines` : { fail: `${g.data.interview?.status} ${g.data.interview_messages?.length} ${rep.status}` };
   });
   await check('interviews', 'expired interview link is refused', async () => {
     await admin.from('recruitment_interviews').update({ expires_at: new Date(Date.now() - 60000).toISOString() }).eq('id', interviewId);
     const r = await R(null, { action: 'portal_interview_answer', token: linaToken, text: 'Late answer about DHCP.' });
     const { data } = await admin.from('recruitment_interviews').select('status').eq('id', interviewId).single();
-    return r.status === 410 && data.status === 'expired' ? true : `${r.status} ${data.status}`;
+    return r.status === 410 && data.status === 'expired' ? true : { fail: `${r.status} ${data.status}` };
   });
   await check('interviews', 'hiring report needs the hiring manager email; then it is sent and recorded', async () => {
     const none = await R(A.token, { action: 'sendHiringReport', candidate_id: lina.id });
@@ -758,12 +761,12 @@ async function recruitmentChecks(A, B) {
     await R(A.token, { action: 'updateCampaign', campaign_id: campaign.id, campaign: { hiring_manager_name: 'E2E Manager', hiring_manager_email: `e2e-hm-${runId}@example.com` } });
     const sent = await R(A.token, { action: 'sendHiringReport', candidate_id: lina.id });
     const { data } = await admin.from('recruitment_messages').select('kind, status').eq('candidate_id', lina.id).eq('kind', 'hiring_report');
-    return none.status === 409 && bad.status === 400 && sent.status === 200 && data.length === 1 && data[0].status === 'sent' ? true : `${none.status}/${bad.status}/${sent.status} ${JSON.stringify(data)}`;
+    return none.status === 409 && bad.status === 400 && sent.status === 200 && data.length === 1 && data[0].status === 'sent' ? true : { fail: `${none.status}/${bad.status}/${sent.status} ${JSON.stringify(data)}` };
   });
   await check('interviews', 'LinkedIn is not offered anywhere; CV import and written interviews are', async () => {
     const r = await R(A.token, { action: 'overview' });
     const keys = (r.data.integrations || []).map((i) => i.key);
-    return !JSON.stringify(r.data).toLowerCase().includes('linkedin') && keys.includes('cv_import') && keys.includes('interviews') ? keys.join(', ') : JSON.stringify(keys);
+    return !JSON.stringify(r.data).toLowerCase().includes('linkedin') && keys.includes('cv_import') && keys.includes('interviews') ? keys.join(', ') : { fail: JSON.stringify(keys) };
   });
 
   if (RUN_AI) {
@@ -787,7 +790,7 @@ async function recruitmentChecks(A, B) {
     await check('interviews-ai', 'AI drafts job-related interview questions (a draft until approved)', async () => {
       const r = await R(A.token, { action: 'generateInterviewPlan', campaign_id: campaign.id, count: 4 });
       if (r.status !== 200) throw new Error(`${r.status} ${JSON.stringify(r.data).slice(0, 200)}`);
-      return r.data.plan.status === 'draft' && r.data.plan.questions.length >= 3 ? `${r.data.plan.questions.length}: ${r.data.plan.questions[0].question.slice(0, 80)}` : JSON.stringify(r.data.plan).slice(0, 200);
+      return r.data.plan.status === 'draft' && r.data.plan.questions.length >= 3 ? `${r.data.plan.questions.length}: ${r.data.plan.questions[0].question.slice(0, 80)}` : { fail: JSON.stringify(r.data.plan).slice(0, 200) };
     });
     await check('interviews-ai', 'full written interview with AI follow-ups (capped at 2 per question) and evidence-checked scoring', async () => {
       await R(A.token, { action: 'saveInterviewPlan', campaign_id: campaign.id, questions: QUESTIONS, max_followups: 2, valid_days: 7, approve: true });
@@ -821,7 +824,7 @@ async function recruitmentChecks(A, B) {
       const { data: row } = await admin.from('recruitment_candidates').select('full_name, source, skills, cv_text, contact_enc').eq('campaign_id', campaign.id).eq('source', 'cv_import').maybeSingle();
       const ok = data.added.length === 1 && data.skipped.length === 1 && row && /karim/i.test(row.full_name) && /active directory/i.test(row.cv_text) && row.contact_enc?.startsWith('v1:');
       const forbidden = await fetch(`${URL_}/functions/v1/recruitment`, { method: 'POST', headers: { apikey: ANON, Authorization: `Bearer ${B.token}` }, body: (() => { const f = new FormData(); f.append('mode', 'import'); f.append('campaign_id', campaign.id); f.append('files', new Blob([makePdf(['X'])]), 'x.pdf'); return f; })() });
-      return ok && forbidden.status === 404 ? `added ${row.full_name}; skipped: ${data.skipped.join('; ')}` : JSON.stringify({ data, row: row && { ...row, cv_text: row.cv_text?.slice(0, 80) }, forbidden: forbidden.status });
+      return ok && forbidden.status === 404 ? `added ${row.full_name}; skipped: ${data.skipped.join('; ')}` : { fail: JSON.stringify({ data, row: row && { ...row, cv_text: row.cv_text?.slice(0, 80) }, forbidden: forbidden.status }) };
     });
   }
 }
