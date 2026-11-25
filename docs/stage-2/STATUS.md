@@ -59,6 +59,14 @@ Phase 1 done on staging (linked PCs, signed uploads, server-only encrypted stora
 `docs/stage-2/SECURITY-SCAN-AGENT.md`. E2E 93/0, browser 74/0.
 Phase 2 done: Windows scanner tested on a real Windows machine (15/15) and published to staging `/downloads`.
 
+## Hired status (25 Nov)
+
+Every agent in a workspace with a webhook-confirmed, active paid subscription shows a subtle red glow around its
+card/icon and a green "Hired" label (agent cards, board, agent page, featured agents; Platform Admin untouched).
+Derived from `organizations.hired` (generated, read-only; migration 010), so existing and future agents need nothing
+stored. Tests: RLS 48/48, E2E 88/0 (5 hired checks), browser 74/0 with a paid test workspace. A real Stripe test
+payment needs the Stripe test key (owner step 3 below).
+
 ## Remaining owner steps (need your accounts)
 
 1. ~~Hostinger FTP~~ done 24 Nov (host and user in `deploy/staging.env`, password as a GitHub secret).
