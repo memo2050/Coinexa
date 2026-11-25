@@ -56,7 +56,7 @@ export default function Nav() {
             <Link
               key={link.to}
               to={link.to}
-              className="whitespace-nowrap rounded-full px-3 py-2 text-sm text-slate-300 transition-colors hover:bg-white/[0.06] hover:text-white xl:px-4"
+              className={`whitespace-nowrap rounded-full px-3 py-2 text-sm text-slate-300 transition-colors hover:bg-white/[0.06] hover:text-white ${signedIn ? '' : 'xl:px-4'}`}
             >
               {link.label}
             </Link>
@@ -114,8 +114,9 @@ export default function Nav() {
             to="/agents/new"
             className="group inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bg-gradient-to-r from-blue-600 via-sky-500 to-cyan-400 px-5 py-2.5 text-sm font-semibold text-white shadow-[0_10px_30px_-14px_rgba(34,211,238,0.9)] transition-transform duration-300 hover:-translate-y-0.5"
           >
-            <span className="hidden xl:inline">Build a new AI Agent</span>
-            <span className="xl:hidden">New agent</span>
+            {/* Signed in, the menu holds more items, so the button uses its short label. */}
+            <span className={signedIn ? 'hidden' : 'hidden xl:inline'}>Build a new AI Agent</span>
+            <span className={signedIn ? '' : 'xl:hidden'}>New agent</span>
             <ArrowUpRight className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
           </Link>
         </div>

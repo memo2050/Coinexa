@@ -57,11 +57,19 @@ async function navCheck(context, role, expect) {
     const has = async (name) => (await header.getByText(name, { exact: true }).count()) > 0;
     const seen = { signIn: await has('Sign In'), security: await has('Security'), signOut: await has('Sign Out'), admin: await has('Admin Console') };
     for (const [k, v] of Object.entries(expect)) if (seen[k] !== v) problems.push(`${k} ${v ? 'missing' : 'shown'}`);
+    // The menu must fit: nothing wider than the header, no wrapped buttons, logo fully visible.
+    const fits = () => header.evaluate((h) => {
+      const row = h.firstElementChild;
+      const logo = h.querySelector('img');
+      const lb = logo?.getBoundingClientRect();
+      const wrapped = [...h.querySelectorAll('a,button')].some((el) => el.offsetParent && el.getBoundingClientRect().height > 60);
+      return !(row.scrollWidth > row.clientWidth + 1 || wrapped || !lb || lb.left < 0 || lb.width < 40);
+    });
+    if (!(await fits())) problems.push('menu does not fit at 1440 px');
     await page.screenshot({ path: `${OUT}/nav_${role}.jpg`, type: 'jpeg', quality: 75, clip: { x: 0, y: 0, width: 1440, height: 90 } }).catch(() => {});
     await page.setViewportSize({ width: 1024, height: 700 });
     await page.waitForTimeout(400);
-    const crowded = await header.evaluate((h) => h.scrollWidth > h.clientWidth + 1 || [...h.querySelectorAll('a,button')].some((el) => el.offsetParent && el.getBoundingClientRect().height > 60));
-    if (crowded) problems.push('menu overflows at 1024 px');
+    if (!(await fits())) problems.push('menu does not fit at 1024 px');
     await page.screenshot({ path: `${OUT}/nav_${role}_1024.jpg`, type: 'jpeg', quality: 75, clip: { x: 0, y: 0, width: 1024, height: 90 } }).catch(() => {});
     await page.setViewportSize({ width: 1440, height: 900 });
     // A plain user opening the admin console directly is refused (the server refuses too).
