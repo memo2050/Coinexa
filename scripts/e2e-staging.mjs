@@ -8,6 +8,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { makeEntities } from '../src/api/entityQuery.js';
 import { appendFileSync } from 'node:fs';
+import { simulatedPc, sampleScan } from './sim-scanner.mjs';
 
 const URL_ = process.env.SUPABASE_URL;
 const ANON = process.env.SUPABASE_ANON_KEY;
@@ -272,6 +273,9 @@ async function main() {
   // ---------------- Recruitment agent ----------------
   await recruitmentChecks(A, B);
 
+  // ---------------- Cyber Security Scan agent (Phase 1) ----------------
+  await securityChecks(A, B, orgA);
+
   // ---------------- AI features ----------------
   if (!RUN_AI) {
     record('ai', 'AI features', 'skip', 'run with "ai" in ops/e2e.request to include them');
@@ -357,6 +361,124 @@ async function portalLinkFor(candidateId) {
   return token;
 }
 const R = (token, body) => call(token, 'recruitment', body);
+
+// ---------------------------------------------------- Cyber Security Scan (Phase 1) --
+const S = (token, body) => call(token, 'securityScan', body);
+async function securityChecks(A, B, orgA) {
+  let code;
+  await check('security-scan', 'only signed-in workspace users reach company actions', async () => {
+    const r = await S(null, { action: 'overview' });
+    return r.status === 401 ? true : `status ${r.status}`;
+  });
+  await check('security-scan', 'owner creates a one-time linking code (only its hash is stored)', async () => {
+    const r = await S(A.token, { action: 'createPairingCode' });
+    if (r.status !== 200) throw new Error(`${r.status} ${JSON.stringify(r.data).slice(0, 200)}`);
+    code = r.data.code;
+    const { data } = await admin.from('security_pairing_codes').select('code_hash').eq('expires_at', r.data.expires_at);
+    const stored = JSON.stringify(data);
+    return /^[A-Z2-9]{5}-[A-Z2-9]{5}$/.test(code) && !stored.includes(code.replace('-', '')) ? `code issued, expires ${r.data.expires_at}` : stored;
+  });
+  const pc = await simulatedPc(URL_, ANON, `E2E-PC-${runId}`);
+  await check('security-scan', 'a linking request signed with a different key is refused', async () => {
+    const other = await simulatedPc(URL_, ANON, 'X');
+    const r = await fetch(`${URL_}/functions/v1/securityScan`, { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: ANON },
+      body: JSON.stringify({ action: 'device_pair', code, public_key: pc.publicKey, device_name: pc.name, signature: await other.sign(`coinexa-scan-pair-v1\n${code.replace('-', '')}\n${pc.publicKey}\n${pc.name}`) }) });
+    return r.status === 401 ? true : `status ${r.status}`;
+  });
+  await check('security-scan', 'PC links with the code; the code cannot be used twice', async () => {
+    const r = await pc.link(code);
+    if (r.status !== 200) throw new Error(`${r.status} ${JSON.stringify(r.data).slice(0, 200)}`);
+    const again = await (await simulatedPc(URL_, ANON, 'SECOND')).link(code);
+    const { data } = await admin.from('security_devices').select('organization_id, public_key').eq('id', pc.deviceId).single();
+    return again.status === 401 && data.organization_id === orgA && data.public_key === pc.publicKey ? `linked ${pc.deviceId}` : `again ${again.status}`;
+  });
+  await check('security-scan', 'another company cannot see or unlink this PC', async () => {
+    const code2 = await S(B.token, { action: 'revokeDevice', device_id: pc.deviceId });
+    const ov = await S(B.token, { action: 'overview' });
+    const leak = (ov.data.devices || []).some((d) => d.id === pc.deviceId);
+    return code2.status === 404 && !leak ? true : `${code2.status} leak=${leak}`;
+  });
+
+  let scanId;
+  await check('security-scan', 'signed sample scan is accepted; addresses stored encrypted', async () => {
+    const { response: r } = await pc.upload(sampleScan());
+    if (r.status !== 200) throw new Error(`${r.status} ${JSON.stringify(r.data).slice(0, 300)}`);
+    scanId = r.data.scan_id;
+    const { data: hosts } = await admin.from('security_scan_hosts').select('identity_enc, ports').eq('scan_id', scanId);
+    const { data: scan } = await admin.from('security_scans').select('networks_enc, authorized_by').eq('id', scanId).single();
+    const plain = JSON.stringify(hosts) + scan.networks_enc;
+    const ok = r.data.devices === 5 && r.data.open_ports === 8 && hosts.length === 5 && !plain.includes('192.168.50') && !plain.includes('office-printer') && hosts.every((h) => h.identity_enc.startsWith('v1:'));
+    return ok ? `5 devices, 8 open ports; authorised by ${scan.authorized_by}` : JSON.stringify(r.data);
+  });
+  await check('security-scan', 'replaying the exact same signed upload is refused', async () => {
+    const { request, response } = await pc.upload(sampleScan());
+    const again = await pc.replay(request);
+    return response.status === 200 && again.status === 409 ? true : `${response.status}/${again.status}`;
+  });
+  await check('security-scan', 'altered scan contents (signature no longer matches) are refused', async () => {
+    const real = JSON.stringify(sampleScan());
+    const { response } = await pc.upload(real, { payloadOverride: real.replace('"router"', '"evil"') });
+    return response.status === 401 ? true : `status ${response.status}`;
+  });
+  await check('security-scan', 'stale or future timestamps are refused (±5 minutes)', async () => {
+    const old = await pc.upload(sampleScan(), { timestamp: new Date(Date.now() - 10 * 60000).toISOString() });
+    const future = await pc.upload(sampleScan(), { timestamp: new Date(Date.now() + 10 * 60000).toISOString() });
+    return old.response.status === 401 && future.response.status === 401 ? true : `${old.response.status}/${future.response.status}`;
+  });
+  await check('security-scan', 'a request signed by a different key for this PC is refused', async () => {
+    const other = await simulatedPc(URL_, ANON, 'X');
+    const { response } = await pc.upload(sampleScan(), { signWith: other.sign });
+    const unknown = await pc.upload(sampleScan(), { deviceId: 'no-such-device' });
+    return response.status === 401 && unknown.response.status === 401 ? true : `${response.status}/${unknown.response.status}`;
+  });
+  await check('security-scan', 'public internet ranges, outside devices and unauthorised scans are refused', async () => {
+    const pub = await pc.upload(sampleScan({ networks: [{ cidr: '8.8.8.0/24' }], hosts: [{ ip: '8.8.8.8', ports: [] }] }));
+    const outside = await pc.upload(sampleScan({ hosts: [{ ip: '192.168.60.5', ports: [] }] }));
+    const unauth = await pc.upload(sampleScan({ authorization: { confirmed: false, confirmed_by: 'x y', statement_version: 'scan-authorization-v1' } }));
+    const s = [pub, outside, unauth].map((x) => x.response.status);
+    return s.every((x) => x === 422) ? `${pub.response.data.error}` : s.join('/');
+  });
+  await check('security-scan', 'owner sees full details; another company cannot open or delete the scan', async () => {
+    const mine = await S(A.token, { action: 'getScan', scan_id: scanId });
+    const theirs = await S(B.token, { action: 'getScan', scan_id: scanId });
+    const del = await S(B.token, { action: 'deleteScan', scan_id: scanId });
+    const ok = mine.status === 200 && mine.data.hosts[0].ip === '192.168.50.1' && mine.data.hosts[1].hostname === 'office-printer'
+      && mine.data.scan.networks[0].cidr === '192.168.50.0/24' && !('nonce' in mine.data.scan) && theirs.status === 404 && del.status === 404;
+    return ok ? true : JSON.stringify({ m: mine.status, t: theirs.status, d: del.status, h: mine.data.hosts?.[0] });
+  });
+  await check('security-scan', 'a workspace member (not admin) sees the scan with addresses hidden', async () => {
+    await admin.from('organization_members').update({ member_role: 'member' }).eq('organization_id', orgA).eq('user_id', A.id);
+    try {
+      const r = await S(A.token, { action: 'getScan', scan_id: scanId });
+      const code2 = await S(A.token, { action: 'createPairingCode' });
+      const ok = r.status === 200 && r.data.addresses_hidden && r.data.hosts.every((h) => h.ip.endsWith('.x') && !h.mac && !h.hostname) && code2.status === 403;
+      return ok ? `e.g. ${r.data.hosts[0].ip}` : JSON.stringify({ s: r.status, h: r.data.hosts?.[0], c: code2.status });
+    } finally {
+      await admin.from('organization_members').update({ member_role: 'owner' }).eq('organization_id', orgA).eq('user_id', A.id);
+    }
+  });
+  await check('security-scan', 'PC status check works; after unlinking, the PC can no longer upload', async () => {
+    const before = await pc.status();
+    const rev = await S(A.token, { action: 'revokeDevice', device_id: pc.deviceId });
+    const after = await pc.upload(sampleScan());
+    const st = await pc.status();
+    return before.response.status === 200 && rev.status === 200 && after.response.status === 403 && st.response.status === 403 ? true
+      : `${before.response.status}/${rev.status}/${after.response.status}/${st.response.status}`;
+  });
+  await check('security-scan', 'owner can delete a scan with its device list; actions are in the audit log', async () => {
+    const d = await S(A.token, { action: 'deleteScan', scan_id: scanId });
+    const { data: hosts } = await admin.from('security_scan_hosts').select('id').eq('scan_id', scanId);
+    const { data: logs } = await admin.from('audit_logs').select('action').eq('organization_id', orgA).like('action', 'security.%');
+    const kinds = [...new Set(logs.map((l) => l.action))].sort();
+    return d.status === 200 && hosts.length === 0 && kinds.includes('security.device_linked') && kinds.includes('security.scan_uploaded') && kinds.includes('security.device_revoked')
+      ? kinds.join(', ') : JSON.stringify({ d: d.status, hosts: hosts.length, kinds });
+  });
+  await check('security-scan', 'invalid JSON and unknown actions are handled cleanly', async () => {
+    const bad = await fetch(`${URL_}/functions/v1/securityScan`, { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: ANON }, body: '{oops' });
+    const unknown = await S(A.token, { action: 'nope' });
+    return bad.status === 400 && unknown.status === 400 ? true : `${bad.status}/${unknown.status}`;
+  });
+}
 
 // Minimal valid single-page text PDF (for the CV import check).
 function makePdf(lines) {

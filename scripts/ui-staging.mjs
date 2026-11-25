@@ -6,6 +6,7 @@
 // removes the throwaway account and its data.
 //
 // Env: SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_KEY, BASE_URL (preview server)
+import { simulatedPc, sampleScan } from './sim-scanner.mjs';
 import { chromium } from 'playwright';
 import { createClient } from '@supabase/supabase-js';
 import { mkdirSync, writeFileSync, appendFileSync } from 'node:fs';
@@ -144,6 +145,17 @@ async function main() {
     });
     USER.push('/recruitment', '/recruitment/new', `/recruitment/${camp.id}`);
     PUBLIC_AFTER.push(`/apply/${camp.apply_slug}`, `/r/${portalToken}`);
+
+    // Cyber Security Scan: a simulated linked PC uploads one signed sample scan, so the
+    // overview and scan pages have real content (same path the Windows scanner will use).
+    const linkCode = 'UITST' + crypto.randomUUID().replace(/[^A-Z2-9]/gi, '').toUpperCase().replace(/[01IO]/g, '').slice(0, 5).padEnd(5, 'Z');
+    const codeHash = [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(linkCode)))].map((b) => b.toString(16).padStart(2, '0')).join('');
+    await admin.from('security_pairing_codes').insert({ organization_id: orgId, code_hash: codeHash, expires_at: new Date(Date.now() + 600000).toISOString(), created_by_id: userId, created_by: email });
+    const pc = await simulatedPc(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, 'UI-TEST-PC');
+    const linked = await pc.link(linkCode);
+    const { response: up } = await pc.upload(sampleScan());
+    if (linked.status !== 200 || up.status !== 200) throw new Error(`security scan seed failed: ${linked.status}/${up.status} ${JSON.stringify(up.data)}`);
+    USER.push('/network-security', `/network-security/scans/${up.data.scan_id}`);
 
     for (const [vp, viewport] of Object.entries(VIEWPORTS)) {
       const userCtx = await browser.newContext({ viewport, isMobile: !!viewport.isMobile, hasTouch: !!viewport.hasTouch, storageState: state });

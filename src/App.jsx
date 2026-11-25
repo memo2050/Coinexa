@@ -23,6 +23,8 @@ import RecruitmentNew from './pages/recruitment/RecruitmentNew';
 import RecruitmentCampaign from './pages/recruitment/RecruitmentCampaign';
 import CandidatePortal from './pages/recruitment/CandidatePortal';
 import ApplyPage from './pages/recruitment/ApplyPage';
+import NetworkSecurityHome from './pages/security/NetworkSecurityHome';
+import NetworkScanDetail from './pages/security/NetworkScanDetail';
 import SecurityCheck from './pages/SecurityCheck';
 import BillingSuccess from './pages/BillingSuccess';
 import Privacy from './pages/Privacy';
@@ -81,6 +83,8 @@ const AuthenticatedApp = () => {
         <Route path="/recruitment" element={<RecruitmentHome />} />
         <Route path="/recruitment/new" element={<RecruitmentNew />} />
         <Route path="/recruitment/:id" element={<RecruitmentCampaign />} />
+        <Route path="/network-security" element={<NetworkSecurityHome />} />
+        <Route path="/network-security/scans/:id" element={<NetworkScanDetail />} />
         <Route path="/usage" element={<AdminUsage />} />
         <Route path="/security-check" element={<SecurityCheck />} />
         <Route path="/billing/success" element={<BillingSuccess />} />

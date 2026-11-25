@@ -236,4 +236,44 @@ do $$ begin
 end $$;
 rollback;
 
+-- Cyber Security Scan: linked PCs, scans and hosts are server-only; replays and bad keys refused.
+begin;
+insert into public.security_devices (id, organization_id, name, public_key) values ('dev-s', 'org-c', 'PC', repeat('A', 43) || '=');
+insert into public.security_scans (id, organization_id, device_id, nonce, signed_at, payload_sha256, schema_version, started_at, finished_at, networks_enc, network_summary, authorized_by, authorization_statement)
+  values ('scan-s', 'org-c', 'dev-s', 'nonce-0000000000001', now(), repeat('a', 64), 'v1', now(), now(), 'v1:x:y', '1 network', 'Owner', 'I am authorized');
+select pg_temp.act_as('00000000-0000-0000-0000-00000000000c', 'c@test.local');
+set local role authenticated;
+do $$ begin
+  begin
+    perform 1 from public.security_scans limit 1;
+    raise notice 'FAIL: 39 browser can read scans';
+  exception when insufficient_privilege then raise notice 'pass: 39 security scans are server-only, even for the owning workspace';
+  end;
+  begin
+    perform 1 from public.security_devices limit 1;
+    raise notice 'FAIL: 40 browser can read linked PCs';
+  exception when insufficient_privilege then raise notice 'pass: 40 linked PCs and their keys are server-only';
+  end;
+  begin
+    insert into public.security_pairing_codes (organization_id, code_hash, expires_at) values ('org-c', 'x', now());
+    raise notice 'FAIL: 41 browser can create pairing codes';
+  exception when insufficient_privilege then raise notice 'pass: 41 browser cannot create pairing codes';
+  end;
+end $$;
+reset role;
+do $$ begin
+  begin
+    insert into public.security_scans (organization_id, device_id, nonce, signed_at, payload_sha256, schema_version, started_at, finished_at, networks_enc, network_summary, authorized_by, authorization_statement)
+      values ('org-c', 'dev-s', 'nonce-0000000000001', now(), repeat('b', 64), 'v1', now(), now(), 'v1:x:y', '1 network', 'Owner', 'I am authorized');
+    raise notice 'FAIL: 42 replayed nonce accepted';
+  exception when unique_violation then raise notice 'pass: 42 the same upload (device + nonce) can never be stored twice';
+  end;
+  begin
+    insert into public.security_devices (organization_id, name, public_key) values ('org-c', 'PC2', 'not-a-key');
+    raise notice 'FAIL: 43 malformed public key accepted';
+  exception when check_violation then raise notice 'pass: 43 only well-formed Ed25519 public keys are stored';
+  end;
+end $$;
+rollback;
+
 select 'ALL RLS CHECKS PASSED' as result;

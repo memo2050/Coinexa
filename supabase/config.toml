@@ -467,6 +467,11 @@ verify_jwt = false
 [functions.recruitment]
 verify_jwt = false
 
+[functions.securityScan]
+# Linked PCs have no user session: every device request is checked by its Ed25519
+# signature inside the function; company requests are checked by the user's session.
+verify_jwt = false
+
 [functions.adminActivity]
 verify_jwt = false
 

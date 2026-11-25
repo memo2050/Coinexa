@@ -180,6 +180,10 @@ export const COLUMNS = {
   recruitment_interview_plans: new Set(["id","organization_id","campaign_id","questions","max_followups","valid_days","status","approved_at","approved_by","created_date","updated_date","created_by_id","created_by"]),
   recruitment_interviews: new Set(["id","organization_id","campaign_id","candidate_id","questions","max_followups","status","current_index","followups_used","expires_at","started_at","completed_at","evaluation","score","evaluated_at","report_sent_at","created_date","updated_date","created_by_id","created_by"]),
   recruitment_interview_messages: new Set(["id","organization_id","interview_id","role","kind","question_index","content","created_date","updated_date","created_by_id","created_by"]),
+  security_pairing_codes: new Set(["id","organization_id","code_hash","expires_at","used_at","device_id","created_date","updated_date","created_by_id","created_by"]),
+  security_devices: new Set(["id","organization_id","name","platform","app_version","public_key","status","paired_at","last_seen_at","revoked_at","revoked_by","created_date","updated_date","created_by_id","created_by"]),
+  security_scans: new Set(["id","organization_id","device_id","nonce","signed_at","payload_sha256","schema_version","scanner_version","started_at","finished_at","networks_enc","network_summary","authorized_by","authorization_statement","host_count","open_port_count","status","created_date","updated_date","created_by_id","created_by"]),
+  security_scan_hosts: new Set(["id","organization_id","scan_id","identity_enc","ip_sort","vendor","device_type","os_guess","ports","created_date","updated_date","created_by_id","created_by"]),
 };
 // END GENERATED COLUMNS
 
