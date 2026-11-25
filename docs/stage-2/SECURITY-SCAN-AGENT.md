@@ -43,7 +43,61 @@ modified `src/App.jsx`, `src/pages/Agents.jsx`, `supabase/config.toml`, `.github
 - E2E harness: a check that *returned* its failure text was counted as a pass. Failures are now explicit
   (`{ fail }`); this also corrected one older admin check that could never fail. No other hidden failures were found.
 
-### Phase 2 plan (awaiting approval)
-Go scanner, single unsigned `.exe` for staging tests: enter linking code → key stored with Windows DPAPI → confirm
-authorisation → discover devices on the directly attached private /24 (or smaller) networks → TCP connect scan of
-common ports with service banners → signed upload. Expect Windows SmartScreen / antivirus warnings while unsigned.
+## Phase 2 (25 Nov 2026): Windows Network Scanner — DONE, tested, published to staging
+
+Download (staging only): https://forward-darkblue-rook-76.hostingersite.com/downloads/coinexa-network-scanner-staging.exe
+(also linked on the Network security page with version and SHA-256). Version 0.2.0-staging.4,
+6.3 MB, SHA-256 `a278f3ff0aaae5730daf28871e637d353fdd5b20a266bc555b04111488684e0f`. Not code-signed (by decision).
+
+What it does (`scanner/`, Go, single .exe, Windows 10/11 64-bit, no install, no admin rights, no drivers):
+- Double-click menu: 1 Link this PC · 2 Scan my network · 3 Check link · 4 Unlink · 5 Exit. Command line too:
+  `link CODE`, `scan [--range CIDR] [--confirm-authorized "Name"] [--dry-run] [--output FILE]`, `status`, `unlink`, `version`.
+- **Scope**: only private IPv4 (10/8, 172.16/12, 192.168/16) networks the PC is attached to; max 1,024 addresses
+  (larger networks narrowed to the PC's /24); a custom range must lie inside an attached network. Public internet,
+  loopback, link-local and oversized ranges are refused before any connection is made. The server checks it all again.
+- **Authorisation before every scan**: shows the exact ranges and the statement; the user types their full name and
+  YES. Unattended runs must pass `--confirm-authorized "Full Name"` on each run. Cancelling scans nothing.
+- **Scan**: TCP connection probes + the Windows ARP table to find devices; 66 common ports per device; reads the
+  service's own greeting / HTTP Server header (product and version); reverse DNS names; cautious device hints labelled
+  "guess". No logins, no password guessing, no exploits, no UDP, no raw packets.
+- **Key**: Ed25519 key made on the PC; private key protected with Windows DPAPI (only that Windows user on that PC can
+  unlock it); uploads signed; PC clock errors corrected from the server's time. A local copy of each scan is saved
+  in `%AppData%\CoinexaScanner\last-scan.json`.
+
+Pipeline (`.github/workflows/scanner.yml`): Linux build + tests → real Windows test machine (unit tests, Microsoft
+Defender scan, end-to-end against staging) → publish to `/downloads` only if all pass → download it back from the
+site and verify the SHA-256 equals the tested file. Site deploys no longer delete `/downloads`.
+
+### Test report (actual results)
+- Go unit tests: 12/12 on Linux and 12/12 on Windows (scope rules, private/public addresses, oversize, ranges outside
+  attached networks, ARP parsing (Windows and Unix), banner parsing, payload format, DPAPI key round trip on Windows,
+  live scan of the machine's own address with a test service).
+- Microsoft Defender on Windows: no threats found. Authenticode: NotSigned (expected).
+- Windows end-to-end with the real .exe against staging: **15/15 passed** — version/server; scan refused before
+  linking; invalid code refused; link with a real code, key stored as a 262-byte DPAPI blob (raw key 32 bytes, header
+  01000000); signed status; 8.8.8.0/24 and 1.1.1.1 refused with no connection; 10.0.0.0/8 and a non-attached /24
+  refused; scan cancelled without name / without YES (nothing uploaded); interactive authorised scan of the test
+  machine's own address found 10 open ports incl. the test services `21/ftp vsFTPd 3.0.3` and `8080 CoinexaTestServer
+  1.2.3` and Windows' own `22/ssh OpenSSH_for_Windows 9.5`; unattended scan with --confirm-authorized and local copy;
+  dry run uploads nothing; after unlinking in Coinexa the .exe can no longer upload or check status; unlinking on the
+  PC removes the key; the scan opens in Coinexa. Test account, workspace, PC and scans deleted afterwards.
+- Published file hash = tested file hash (verified by downloading from the staging site).
+- Website regression after the change: E2E 83 passed / 0 failed; browser 74 page views / 0 problems.
+- Only the test machine's own address was ever scanned in automated tests.
+
+### Fixed during Phase 2 (test harness only; the scanner needed no fixes)
+- Test services crashed on the scanner's quick probe connections (Windows reports a reset) → errors handled.
+- A crashed run left a test account on staging → removed; runs now always clean up and remove stale test accounts.
+- The .exe was launched with a blocking call, so the test services could not answer while it scanned → asynchronous.
+
+### Known limitations
+- Unsigned: Windows SmartScreen shows “Windows protected your PC” (More info → Run anyway); some antivirus products
+  may warn about an unsigned network scanner. Code signing needs approval (≈$10/month Azure Trusted Signing).
+- No admin rights: devices whose firewall blocks every probe port and that are not in the ARP table can be missed;
+  OS/device type are guesses; versions only when the service announces them. IPv4 only; TCP only.
+- Device maker (vendor) from MAC is not filled yet (planned server-side in Phase 3).
+- Typical home /24 scan: about 1–4 minutes depending on how many devices answer.
+
+## Phase 3 (next, awaiting approval): analysis
+Fixed rules for risky services, known-vulnerability lookup by product/version (OSV/NVD, labelled "potential"),
+AI explanation and prioritisation within the $20/month cap.

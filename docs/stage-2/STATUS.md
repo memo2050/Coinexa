@@ -56,7 +56,8 @@ per-candidate reports emailed to the hiring manager; LinkedIn removed. E2E 77/0,
 ## Cyber Security Scan Agent (25 Nov)
 
 Phase 1 done on staging (linked PCs, signed uploads, server-only encrypted storage, pages) — see
-`docs/stage-2/SECURITY-SCAN-AGENT.md`. E2E 93/0, browser 74/0. Phase 2 (Windows scanner) waits for approval.
+`docs/stage-2/SECURITY-SCAN-AGENT.md`. E2E 93/0, browser 74/0.
+Phase 2 done: Windows scanner tested on a real Windows machine (15/15) and published to staging `/downloads`.
 
 ## Remaining owner steps (need your accounts)
 
