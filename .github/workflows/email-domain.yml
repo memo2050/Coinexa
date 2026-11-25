@@ -1,0 +1,55 @@
+name: Email domain (Resend) — register and check
+
+# Registers the sending domain with Resend (no DNS change) and prints the DNS records
+# the owner must add, then reports their verification status. Runs when
+# ops/email-domain.request changes. Line 1 of that file = the domain (e.g. coinexa.net),
+# line 2 = "register" or "check".
+on:
+  push:
+    branches: [stage-2/build]
+    paths: [ops/email-domain.request]
+
+jobs:
+  domain:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Register or check the domain
+        run: |
+          node - <<'EOF'
+          const fs = require('fs');
+          const [domain, mode = 'check'] = fs.readFileSync('ops/email-domain.request', 'utf8').split('\n').map((s) => s.trim());
+          if (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(domain)) { console.log('No valid domain on line 1.'); process.exit(1); }
+          const api = async (path, init = {}) => {
+            const r = await fetch(`https://api.resend.com${path}`, { ...init, headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' } });
+            const j = await r.json().catch(() => ({}));
+            return { status: r.status, j };
+          };
+          (async () => {
+            const list = await api('/domains');
+            if (list.status === 401 || list.status === 403) {
+              console.log(`Resend refused the domain API (${list.status}): ${JSON.stringify(list.j).slice(0, 200)}`);
+              console.log('The API key is probably "Sending access" only. Add the domain in the Resend dashboard instead.');
+              process.exit(1);
+            }
+            let d = (list.j.data || []).find((x) => x.name === domain);
+            if (!d && mode === 'register') {
+              const c = await api('/domains', { method: 'POST', body: JSON.stringify({ name: domain, region: 'us-east-1' }) });
+              if (c.status >= 300) { console.log(`Register failed (${c.status}): ${JSON.stringify(c.j).slice(0, 300)}`); process.exit(1); }
+              d = c.j;
+              console.log(`Registered ${domain} with Resend.`);
+            }
+            if (!d) { console.log(`${domain} is not registered with Resend.`); process.exit(1); }
+            if (mode === 'check') await api(`/domains/${d.id}/verify`, { method: 'POST' });
+            const full = await api(`/domains/${d.id}`);
+            const info = full.j;
+            const lines = [`## ${domain}: ${info.status}`, '', '| Type | Name (host) | Value | Priority | Status |', '|---|---|---|---|---|'];
+            for (const r of info.records || []) lines.push(`| ${r.type} | ${r.name} | \`${r.value}\` | ${r.priority ?? ''} | ${r.status} |`);
+            const out = lines.join('\n');
+            console.log(out);
+            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, out + '\n');
+          })();
+          EOF
