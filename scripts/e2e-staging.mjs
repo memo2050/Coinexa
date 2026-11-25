@@ -269,6 +269,9 @@ async function main() {
   });
   await admin.from('profiles').update({ role: 'user' }).eq('id', A.id);
 
+  // ---------------- Recruitment agent ----------------
+  await recruitmentChecks(A, B);
+
   // ---------------- AI features ----------------
   if (!RUN_AI) {
     record('ai', 'AI features', 'skip', 'run with "ai" in ops/e2e.request to include them');
@@ -341,6 +344,210 @@ async function main() {
   });
 }
 
+
+// ===================================================== Recruitment agent ==
+async function sha256hex(text) {
+  const d = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)));
+  return [...d].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+async function portalLinkFor(candidateId) {
+  // Same as the server does when it emails a candidate, without sending mail in tests.
+  const token = `e2e${crypto.randomUUID().replace(/-/g, '')}${crypto.randomUUID().replace(/-/g, '')}`;
+  await admin.from('recruitment_candidates').update({ portal_token_hash: await sha256hex(token), portal_expires_at: new Date(Date.now() + 86400000).toISOString() }).eq('id', candidateId);
+  return token;
+}
+const R = (token, body) => call(token, 'recruitment', body);
+
+async function recruitmentChecks(A, B) {
+  let campaign;
+  await check('recruitment', 'campaign with the initial offer above the maximum is refused', async () => {
+    const r = await R(A.token, { action: 'createCampaign', campaign: { title: 'X', country: 'Egypt', initial_offer: 200, max_budget: 150 } });
+    return r.status === 400 ? true : `status ${r.status}`;
+  });
+  await check('recruitment', 'create campaign (3 IT Help Desk technicians, Cairo, up to $150/day, 5 days)', async () => {
+    const r = await R(A.token, { action: 'createCampaign', campaign: {
+      title: 'IT Help Desk Technician', specialization: 'IT support', country: 'Egypt', city: 'Cairo', positions_required: 3,
+      skills: 'Windows troubleshooting, Microsoft Office, Basic networking', experience_min: 1, experience_max: 3,
+      languages: 'Arabic, English', work_mode: 'onsite', duration: '5 days', schedule: '09:00-17:00', availability: 'Next week',
+      description: 'On-site help desk support for an office move.', currency: 'USD', pay_frequency: 'daily',
+      initial_offer: 120, max_budget: 150, negotiation_strategy: 'balanced', max_rounds: 3, outreach_mode: 'approval' } });
+    if (r.status !== 200) throw new Error(`status ${r.status} ${JSON.stringify(r.data).slice(0, 200)}`);
+    campaign = r.data.campaign;
+    return campaign.id;
+  });
+  if (!campaign) return;
+
+  await check('recruitment', 'another company cannot see, change or add to this campaign', async () => {
+    const get = await R(B.token, { action: 'getCampaign', campaign_id: campaign.id });
+    const add = await R(B.token, { action: 'addCandidate', campaign_id: campaign.id, candidate: { full_name: 'Intruder' } });
+    const upd = await R(B.token, { action: 'updateCampaign', campaign_id: campaign.id, campaign: { max_budget: 999 } });
+    const rep = await R(B.token, { action: 'report', campaign_id: campaign.id });
+    const ov = await R(B.token, { action: 'overview' });
+    const leaks = (ov.data.campaigns || []).some((c) => c.id === campaign.id);
+    const ok = [get, add, upd, rep].every((r) => r.status === 404) && !leaks;
+    return ok ? true : `statuses ${get.status}/${add.status}/${upd.status}/${rep.status}, overview leak ${leaks}`;
+  });
+  await check('recruitment', 'signed-out visitors cannot use company actions', async () => {
+    const r = await R(null, { action: 'overview' });
+    return r.status === 401 ? true : `status ${r.status}`;
+  });
+
+  let mona, omar;
+  await check('recruitment', 'add a referred candidate; contact details are stored encrypted', async () => {
+    const r = await R(A.token, { action: 'addCandidate', campaign_id: campaign.id, source: 'referral', lawful_basis: 'legitimate_interest',
+      source_detail: 'Referred by a staff member', candidate: { full_name: 'Mona Test', headline: 'IT support technician', country: 'Egypt', city: 'Cairo',
+        experience_years: 2, skills: 'Windows 10 troubleshooting, Microsoft Office 365, basic networking (TCP/IP, DHCP)', languages: 'Arabic, English',
+        profile_text: 'Two years of Windows 10 troubleshooting and Microsoft Office 365 support at a Cairo help desk. Set up DHCP and basic networking for small offices.',
+        expected_comp: 180, contact: { email: `e2e-cand-${runId}@example.com`, phone: '+20 100 000 0000' } } });
+    if (r.status !== 200) throw new Error(`status ${r.status} ${JSON.stringify(r.data).slice(0, 200)}`);
+    mona = r.data.candidate;
+    const { data } = await admin.from('recruitment_candidates').select('contact_enc, contact_hint').eq('id', mona.id).single();
+    if (!data.contact_enc?.startsWith('v1:') || data.contact_enc.includes('example.com')) throw new Error('contact not encrypted');
+    if (data.contact_hint.includes(`e2e-cand-${runId}`)) throw new Error('hint not masked');
+    return data.contact_hint;
+  });
+  await check('recruitment', 'CSV import from the company database (bad rows reported, not guessed)', async () => {
+    const csv = `full_name,email,country,city,experience_years,skills,expected_rate\nOmar Test,e2e-omar-${runId}@example.com,Egypt,Cairo,1,"Windows, Office",140\nBroken Row,not-an-email,Egypt,Giza,2,Networking,120\n`;
+    const r = await R(A.token, { action: 'importCsv', campaign_id: campaign.id, csv, file_name: 'company-db.csv', source: 'company_database' });
+    if (r.status !== 200) throw new Error(`status ${r.status}`);
+    const { data } = await admin.from('recruitment_candidates').select('id').eq('campaign_id', campaign.id).eq('full_name', 'Omar Test').single();
+    omar = data;
+    return r.data.added === 1 && r.data.skipped.length === 1 ? `1 added, skipped: ${r.data.skipped[0]}` : JSON.stringify(r.data);
+  });
+
+  // Negotiation through the candidate portal.
+  let monaToken;
+  await check('recruitment', 'portal: candidate sees the job and the $120 opening offer', async () => {
+    monaToken = await portalLinkFor(mona.id);
+    const r = await R(null, { action: 'portal_get', token: monaToken });
+    if (r.status !== 200) throw new Error(`status ${r.status}`);
+    return r.data.current_offer === 120 && r.data.job.title === 'IT Help Desk Technician' ? true : JSON.stringify(r.data).slice(0, 200);
+  });
+  await check('recruitment', 'portal: a response without consent to data processing is refused', async () => {
+    const r = await R(null, { action: 'portal_respond', token: monaToken, response: 'request', amount: 180 });
+    return r.status === 400 ? true : `status ${r.status}`;
+  });
+  await check('recruitment', 'negotiation: asks $180 against a $150 maximum — never offered more than $150, then escalated', async () => {
+    const offers = [];
+    let r;
+    for (let i = 0; i < 6; i += 1) {
+      r = await R(null, { action: 'portal_respond', token: monaToken, response: 'request', amount: 180, availability: 'Available next week',
+        consents: { data_processing: true, share_with_company: true, contact: true } });
+      if (r.status !== 200) throw new Error(`status ${r.status} ${JSON.stringify(r.data).slice(0, 200)}`);
+      offers.push(r.data.decision?.amount);
+      if (r.data.decision?.action === 'escalate') break;
+    }
+    if (offers.some((a) => a > 150)) throw new Error(`offered above max: ${offers}`);
+    if (r.data.decision.action !== 'escalate' || r.data.candidate.status !== 'awaiting_approval') throw new Error(JSON.stringify(r.data.decision));
+    return `offers ${offers.join(' → ')} then company approval requested`;
+  });
+  await check('recruitment', 'company declines the over-budget request; candidate accepts the $150 final offer', async () => {
+    const d = await R(A.token, { action: 'decideEscalation', candidate_id: mona.id, approve: false });
+    if (d.status !== 200) throw new Error(`decide ${d.status} ${JSON.stringify(d.data)}`);
+    const a = await R(null, { action: 'portal_respond', token: monaToken, response: 'accept_offer', consents: { data_processing: true } });
+    if (a.status !== 200) throw new Error(`accept ${a.status} ${JSON.stringify(a.data)}`);
+    const { data } = await admin.from('recruitment_candidates').select('status, final_comp').eq('id', mona.id).single();
+    return data.status === 'agreed' && Number(data.final_comp) === 150 ? true : JSON.stringify(data);
+  });
+  await check('recruitment', 'candidate asking $140 (within budget) is agreed at $140', async () => {
+    const t = await portalLinkFor(omar.id);
+    let last;
+    for (let i = 0; i < 6; i += 1) {
+      last = await R(null, { action: 'portal_respond', token: t, response: 'request', amount: 140, consents: { data_processing: true } });
+      if (last.data.decision?.action === 'accept') break;
+    }
+    const { data } = await admin.from('recruitment_candidates').select('status, final_comp').eq('id', omar.id).single();
+    return data.status === 'agreed' && Number(data.final_comp) === 140 ? true : JSON.stringify(data);
+  });
+  await check('recruitment', 'only an agreed candidate can be marked hired', async () => {
+    const ok = await R(A.token, { action: 'setCandidateStatus', candidate_id: mona.id, status: 'hired' });
+    return ok.status === 200 ? true : `status ${ok.status}`;
+  });
+
+  // Public application with consent + CV, then decline/opt-out and erasure.
+  let applicantToken;
+  await check('recruitment', 'public application page: consent required; application creates a candidate', async () => {
+    const page = await R(null, { action: 'apply_get', slug: campaign.apply_slug });
+    if (page.status !== 200) throw new Error(`apply_get ${page.status}`);
+    const base = { action: 'apply_submit', slug: campaign.apply_slug, candidate: { full_name: 'Sara Applicant', country: 'Egypt', city: 'Giza', experience_years: 3,
+      skills: 'Windows, Active Directory', profile_text: 'Three years of desktop support.', contact: { email: `e2e-sara-${runId}@example.com` } } };
+    const noConsent = await R(null, { ...base, consents: { data_processing: false } });
+    if (noConsent.status !== 400) throw new Error(`without consent: ${noConsent.status}`);
+    const r = await R(null, { ...base, consents: { data_processing: true, share_with_company: false, contact: true } });
+    if (r.status !== 200 || !r.data.portal_url) throw new Error(`status ${r.status} ${JSON.stringify(r.data)}`);
+    applicantToken = r.data.portal_url.split('/r/')[1];
+    const { data: consents } = await admin.from('recruitment_consents').select('kind, granted').in('candidate_id',
+      (await admin.from('recruitment_candidates').select('id').eq('campaign_id', campaign.id).eq('full_name', 'Sara Applicant')).data.map((c) => c.id));
+    return consents.length === 3 ? 'consent records: ' + consents.map((c) => `${c.kind}=${c.granted}`).join(', ') : JSON.stringify(consents);
+  });
+  await check('recruitment', 'CV upload: real PDF accepted, a disguised file refused', async () => {
+    const send = (bytes, name) => {
+      const form = new FormData();
+      form.append('token', applicantToken);
+      form.append('file', new Blob([bytes]), name);
+      return fetch(`${URL_}/functions/v1/recruitment`, { method: 'POST', headers: { apikey: ANON }, body: form });
+    };
+    const good = await send(new TextEncoder().encode('%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF'), 'cv.pdf');
+    const bad = await send(new TextEncoder().encode('<script>alert(1)</script>'), 'cv.pdf');
+    return good.status === 200 && bad.status === 400 ? true : `good ${good.status} bad ${bad.status}`;
+  });
+  await check('recruitment', 'contact details are withheld from the company without the candidate’s sharing consent', async () => {
+    const { data } = await admin.from('recruitment_candidates').select('id').eq('campaign_id', campaign.id).eq('full_name', 'Sara Applicant').single();
+    const r = await R(A.token, { action: 'getCandidate', candidate_id: data.id });
+    return r.status === 200 && r.data.contact_restricted === true && !r.data.candidate.contact && !r.data.cv_url ? true : JSON.stringify({ c: r.data.candidate?.contact, cv: r.data.cv_url });
+  });
+  await check('recruitment', 'candidate can decline, opt out and erase their data', async () => {
+    const d = await R(null, { action: 'portal_respond', token: applicantToken, response: 'opt_out' });
+    const e = await R(null, { action: 'portal_erase', token: applicantToken });
+    const again = await R(null, { action: 'portal_get', token: applicantToken });
+    const { data } = await admin.from('recruitment_candidates').select('full_name, contact_enc, cv_path, erased_at, do_not_contact').eq('campaign_id', campaign.id).not('erased_at', 'is', null).single();
+    const ok = d.status === 200 && e.status === 200 && again.status === 404 && !data.contact_enc && !data.cv_path && data.do_not_contact;
+    return ok ? true : JSON.stringify({ d: d.status, e: e.status, again: again.status, data });
+  });
+  await check('recruitment', 'invalid portal link and unknown action are handled cleanly', async () => {
+    const bad = await R(null, { action: 'portal_get', token: 'x'.repeat(43) });
+    const unknown = await R(A.token, { action: 'nope' });
+    return bad.status === 404 && unknown.status === 400 ? true : `${bad.status}/${unknown.status}`;
+  });
+
+  await check('recruitment', 'dashboard counts, completion rate and filters', async () => {
+    const all = await R(A.token, { action: 'overview' });
+    const t = all.data.totals;
+    const egypt = await R(A.token, { action: 'overview', filters: { country: 'egypt' } });
+    const france = await R(A.token, { action: 'overview', filters: { country: 'France' } });
+    const ok = t.hired === 1 && t.agreed === 1 && t.completion === 67 && egypt.data.campaigns.length === 1 && france.data.campaigns.length === 0;
+    return ok ? `hired ${t.hired}, agreed ${t.agreed}, completion ${t.completion}%` : JSON.stringify(t);
+  });
+  await check('recruitment', 'final report separates hired, agreed and interested; respects contact consent', async () => {
+    const r = await R(A.token, { action: 'report', campaign_id: campaign.id });
+    if (r.status !== 200) throw new Error(`status ${r.status}`);
+    const stages = Object.fromEntries(r.data.rows.map((row) => [row.name, row.stage]));
+    const ok = stages['Mona Test'] === 'Hired' && stages['Omar Test'].startsWith('Agreed') && !('Sara Applicant' in stages)
+      && r.data.csv.split('\r\n')[0].includes('Final negotiated compensation');
+    return ok ? `${r.data.rows.length} rows; ${JSON.stringify(r.data.summary)}` : JSON.stringify(stages);
+  });
+
+  if (RUN_AI) {
+    await check('recruitment-ai', 'AI evaluation: score with verified evidence for each requirement', async () => {
+      const r = await R(A.token, { action: 'evaluate', campaign_id: campaign.id, candidate_id: mona.id });
+      if (r.status !== 200 || !r.data.evaluated?.length) throw new Error(`status ${r.status} ${JSON.stringify(r.data).slice(0, 300)}`);
+      const { data } = await admin.from('recruitment_candidates').select('score, score_explanation').eq('id', mona.id).single();
+      const crit = data.score_explanation.criteria;
+      const profile = 'Two years of Windows 10 troubleshooting and Microsoft Office 365 support at a Cairo help desk. Set up DHCP and basic networking for small offices.';
+      const unverified = crit.filter((c) => c.source === 'ai' && c.evidence && !profile.toLowerCase().replace(/[^a-z0-9]+/g, ' ').includes(c.evidence.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()) && !`mona test it support technician 2 years of experience egypt cairo windows 10 troubleshooting microsoft office 365 basic networking tcp ip dhcp arabic english available next week`.includes(c.evidence.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()));
+      return `score ${data.score}/100, ${crit.length} criteria, ${unverified.length} unverified quotes kept`;
+    });
+    await check('recruitment-ai', 'outreach: AI draft keeps the offer within limits; approved send emails the candidate (staging → owner)', async () => {
+      const d = await R(A.token, { action: 'draftMessage', candidate_id: omar.id });
+      if (d.status !== 200) throw new Error(`draft ${d.status} ${JSON.stringify(d.data).slice(0, 200)}`);
+      const s = await R(A.token, { action: 'sendMessage', message_id: d.data.message.id });
+      if (s.status !== 200) throw new Error(`send ${s.status} ${JSON.stringify(s.data).slice(0, 200)}`);
+      const { data } = await admin.from('recruitment_messages').select('status, attempts, body').eq('id', d.data.message.id).single();
+      return `${data.status} after ${data.attempts} attempt(s); draft ${d.data.message.body.length} chars`;
+    });
+  }
+}
+
 async function cleanup() {
   const orgs = [...created.orgs];
   const users = created.users;
@@ -349,6 +556,13 @@ async function cleanup() {
     for (const t of ['agent_tasks', 'agent_uploads', 'research_reports', 'usage_records', 'audit_logs', 'agents', 'organization_members']) {
       if (orgs.length) await admin.from(t).delete().in('organization_id', orgs);
       if (users.length) await admin.from(t).delete().in('created_by_id', users);
+    }
+    for (const org of orgs) {
+      const { data: folders } = await admin.storage.from('private').list(`recruitment/${org}`);
+      for (const f of folders || []) {
+        const { data: files } = await admin.storage.from('private').list(`recruitment/${org}/${f.name}`);
+        if (files?.length) await admin.storage.from('private').remove(files.map((x) => `recruitment/${org}/${f.name}/${x.name}`));
+      }
     }
     if (orgs.length) await admin.from('organizations').delete().in('id', orgs);
     if (users.length) {
