@@ -24,12 +24,7 @@ function ScannerDownload() {
       <p className="mt-2 text-xs text-slate-400">Version {info.version} · {(info.size / 1048576).toFixed(1)} MB · Windows 10 and 11 (64-bit) · no installation or admin rights needed</p>
       <p className="mt-1 break-all font-mono text-[0.65rem] text-slate-500">SHA-256 {info.sha256}</p>
       <p className="mt-2 text-xs text-amber-200/90">Staging test build, not yet code-signed: Windows may show “Windows protected your PC”. Choose More info → Run anyway only if the SHA-256 above matches your download.</p>
-      <ol className="mt-2 list-decimal space-y-0.5 pl-4 text-xs text-slate-400">
-        <li>Download and double-click the file.</li>
-        <li>Choose 1 (Link this PC) and enter the linking code from this page.</li>
-        <li>Choose 2 (Scan my network), pick your network and confirm you are authorised.</li>
-        <li>The results appear under Scans below.</li>
-      </ol>
+      <p className="mt-2 text-xs text-slate-400">Double-click the downloaded file to open it. Some browsers ask you to confirm keeping an unsigned file: choose Keep.</p>
     </div>
   );
 }
@@ -115,7 +110,10 @@ export default function NetworkSecurityHome() {
               <div className="grid gap-4 md:grid-cols-2">
                 <Panel title="Link a Windows PC" description="The Coinexa Network Scanner runs on a Windows PC inside the network you want to check. Linking gives that PC its own key; it can only upload scans to this workspace.">
                   {data.can_manage ? (
-                    <div className="space-y-3">
+                    <div className="space-y-4">
+                      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-sky-300">Step 1 · Download the scanner</p>
+                      <ScannerDownload />
+                      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-sky-300">Step 2 · Create a linking code, then enter it in the scanner</p>
                       {code && (
                         <div className="rounded-xl border border-sky-400/30 bg-sky-500/10 p-4">
                           <p className="text-xs text-slate-400">Linking code — valid until {when(code.expires_at)}, single use</p>
@@ -129,7 +127,8 @@ export default function NetworkSecurityHome() {
                       <button type="button" className={primaryBtn} onClick={createCode} disabled={!!busy}>
                         {busy === 'code' ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />} {code ? 'New linking code' : 'Create linking code'}
                       </button>
-                      <ScannerDownload />
+                      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-sky-300">Step 3 · Scan</p>
+                      <p className="text-xs text-slate-400">In the scanner choose 2 (Scan my network), pick your network, type your full name and YES. The result appears under Scans below within a few seconds of finishing.</p>
                     </div>
                   ) : <p className="text-sm text-slate-400">Only workspace owners and admins can link PCs.</p>}
                 </Panel>

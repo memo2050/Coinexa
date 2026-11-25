@@ -224,6 +224,15 @@ async function main() {
     return v.status === 200 && v.data.scan.authorized_by === 'CI Tester' ? `${v.data.scan.network_summary}` : { fail: `${v.status}` };
   });
 
+  await check('choosing Scan on an unlinked PC links it on the spot, then scans and uploads', async () => {
+    const before = (await admin.from('security_scans').select('id').eq('organization_id', orgId)).data.length;
+    const c = await fn('securityScan', { action: 'createPairingCode' });
+    if (c.status !== 200) throw new Error(`code ${c.status}`);
+    const r = await exe(['scan', '--range', `${me.address}/32`], `${c.data.code}\nCI-WIN-AUTOLINK\nCI Tester\nYES\n`);
+    const after = (await admin.from('security_scans').select('id').eq('organization_id', orgId)).data.length;
+    return r.code === 0 && r.out.includes('Linked') && after === before + 1 ? 'linked and uploaded in one go' : { fail: `${r.code} ${after - before} ${r.out.slice(-500)}` };
+  });
+
   for (const s of servers) s.close();
 }
 

@@ -153,8 +153,11 @@ func cmdLink(args []string) int {
 	}
 	interactive := code == ""
 	if interactive {
-		fmt.Println("In Coinexa, open Network security and press “Create linking code”.")
-		code = ask("Enter the linking code: ")
+		fmt.Println("In Coinexa, open Network security and press “Create linking code” (valid 10 minutes).")
+		code = ask("Enter the linking code (or press Enter to cancel): ")
+		if strings.TrimSpace(code) == "" {
+			return fail(exitCancelled, "Cancelled. This PC was not linked.")
+		}
 	}
 	if *name == "" {
 		host, _ := os.Hostname()
@@ -195,7 +198,19 @@ func cmdScan(args []string) int {
 		return fail(exitNotLinked, "%v", err)
 	}
 	if c == nil && !*dryRun {
-		return fail(exitNotLinked, "This PC is not linked to Coinexa. Link it first (menu option 1).")
+		if !interactive {
+			return fail(exitNotLinked, "This PC is not linked to Coinexa. Link it first: coinexa-scanner link CODE")
+		}
+		// Interactive: link now instead of stopping, then carry on with the scan.
+		fmt.Println("This PC is not linked to Coinexa yet, so results could not be sent. Let's link it first.")
+		fmt.Println("On the Coinexa Network security page, press “Create linking code”.")
+		if code := cmdLink(nil); code != exitOK {
+			return code
+		}
+		if c, err = loadConfig(); err != nil || c == nil {
+			return fail(exitNotLinked, "Linking did not complete.")
+		}
+		fmt.Println()
 	}
 
 	attached, err := LocalNetworks()
