@@ -67,6 +67,18 @@ Derived from `organizations.hired` (generated, read-only; migration 010), so exi
 stored. Tests: RLS 48/48, E2E 88/0 (5 hired checks), browser 74/0 with a paid test workspace. A real Stripe test
 payment needs the Stripe test key (owner step 3 below).
 
+## Launch preparation (25 Nov)
+
+| Step | Result on staging |
+|---|---|
+| 1. Stripe test payments per agent | 15 test prices; hire, add-a-second-agent with confirmation, cancel to period end, failed payment grace, once-only webhooks. All pass in real Stripe test mode |
+| 2. Production plan, owner account | `PRODUCTION-PLAN.md`; owner is Platform Admin with an internal workspace |
+| 3. Email domain | Waiting on the owner: add coinexa.net in Resend and the DNS records (DNS needs approval). Emails stay redirected to the owner until then |
+| 4. Usage limits, AI cost protection | Per-agent monthly allowances, free trials, per-agent AI cost cap (1.5× expected), platform AI stop at $18 of the $20 limit |
+| 5. Tools | Agents not connected to outside systems are labelled "Drafting assistant" |
+| 6. Security | Two-step sign-in (TOTP) for everyone, required for admins; Cloudflare Turnstile CAPTCHA on sign-up, sign-in, reset, resend and job applications |
+| 7. Legal, backups, tests | Privacy and Terms updated (lawyer review items marked); backup and restore test passes (28/28 tables); E2E 113/0, browser 76 views/0 problems, Windows scanner pass |
+
 ## Remaining owner steps (need your accounts)
 
 1. ~~Hostinger FTP~~ done 24 Nov (host and user in `deploy/staging.env`, password as a GitHub secret).
