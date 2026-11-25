@@ -294,6 +294,7 @@ async function deviceStatus(body: Row) {
 }
 
 serveBase44('securityScan', async (req: Request) => {
+  let action = '';
   try {
     const text = await req.text();
     if (text.length > MAX_PAYLOAD_BYTES * 2) throw fail('The request is too large.', 413);
@@ -303,7 +304,7 @@ serveBase44('securityScan', async (req: Request) => {
     } catch {
       throw fail('The request is not valid JSON.');
     }
-    const action = clean(body.action, 40);
+    action = clean(body.action, 40);
     const result = action === 'device_pair' ? await devicePair(body)
       : action === 'device_upload' ? await deviceUpload(body, text.length)
       : action === 'device_status' ? await deviceStatus(body)
@@ -312,6 +313,8 @@ serveBase44('securityScan', async (req: Request) => {
   } catch (error) {
     const status = Number((error as { status?: number }).status) || 500;
     if (status >= 500) console.error('securityScan failed', (error as Error).message);
+    // Refusals are recorded for diagnosis with the last part of any address masked.
+    else console.warn(`securityScan refused ${status} [${clean(action, 40) || 'company'}]`, (error as Error).message.replace(/\b(\d{1,3}\.\d{1,3}\.\d{1,3})\.\d{1,3}\b/g, '$1.x').slice(0, 300));
     return Response.json({ error: status >= 500 && status !== 503 ? 'Something went wrong. Please try again.' : (error as Error).message }, { status });
   }
 });
