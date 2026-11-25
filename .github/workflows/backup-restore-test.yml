@@ -60,6 +60,8 @@ jobs:
           echo "staging tables: $(wc -l < /tmp/backup/counts-staging.txt)"
 
       - name: 2. Restore into a throwaway local database
+        env:
+          PGOPTIONS: -c client_min_messages=warning
         run: |
           supabase start -x studio,imgproxy,inbucket,realtime,storage-api,edge-runtime,logflare,vector,supavisor,postgres-meta >/dev/null
           LOCAL=postgresql://postgres:postgres@127.0.0.1:54322/postgres
@@ -67,6 +69,8 @@ jobs:
           # the only source of what comes back.
           psql "$LOCAL" -q -c "drop schema public cascade; create schema public; grant usage on schema public to anon, authenticated, service_role;"
           psql "$LOCAL" -q -c "truncate supabase_migrations.schema_migrations" || true
+          # Storage folders (buckets) also come from the backup.
+          psql "$LOCAL" -q -c "set session_replication_role = replica; delete from storage.objects; delete from storage.buckets;"
           psql "$LOCAL" -q -v ON_ERROR_STOP=0 -f /tmp/backup/roles.sql >/tmp/restore-roles.log 2>&1 || true
           psql "$LOCAL" -q -v ON_ERROR_STOP=1 --single-transaction \
             --command 'SET session_replication_role = replica' \
