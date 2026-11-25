@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useToast } from '@/components/ui/use-toast';
-import { Bot, LayoutDashboard, LayoutGrid, Loader2, Plus, Sparkles } from 'lucide-react';
+import { ArrowRight, Bot, Briefcase, LayoutDashboard, LayoutGrid, Loader2, Plus, Sparkles } from 'lucide-react';
 import { base44 } from '@/api/base44Client';
 import Nav from '@/components/site/Nav';
 import Footer from '@/components/site/Footer';
@@ -189,6 +189,25 @@ export default function Agents() {
               })}
             </div>
           </div>
+
+          <Link
+            to="/recruitment"
+            className="group mt-8 flex flex-col gap-4 rounded-2xl border border-sky-400/25 bg-[linear-gradient(120deg,rgba(37,99,235,0.14),rgba(34,211,238,0.06))] p-5 transition-colors hover:border-sky-400/50 sm:flex-row sm:items-center sm:justify-between"
+          >
+            <div className="flex items-start gap-4">
+              <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-blue-600 to-cyan-400"><Briefcase className="h-5 w-5 text-white" /></span>
+              <div>
+                <p className="text-[0.66rem] font-semibold uppercase tracking-[0.18em] text-sky-300">Featured agent</p>
+                <p className="mt-1 font-heading text-lg font-semibold text-white">AI Recruitment & Talent Sourcing Agent</p>
+                <p className="mt-1 max-w-2xl text-sm text-slate-400">
+                  Find, evaluate, contact and negotiate with IT professionals worldwide — inside the budget you approve, with candidate consent and a full audit trail.
+                </p>
+              </div>
+            </div>
+            <span className="inline-flex shrink-0 items-center gap-1.5 text-sm font-semibold text-sky-300">
+              Open recruitment <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+            </span>
+          </Link>
 
           <div className="mt-10">
             {loading ? (

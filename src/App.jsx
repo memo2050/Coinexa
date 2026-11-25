@@ -18,6 +18,11 @@ import Agents from './pages/Agents';
 import TaskBoard from './pages/TaskBoard';
 import AgentCreator from './pages/AgentCreator';
 import AgentDetail from './pages/AgentDetail';
+import RecruitmentHome from './pages/recruitment/RecruitmentHome';
+import RecruitmentNew from './pages/recruitment/RecruitmentNew';
+import RecruitmentCampaign from './pages/recruitment/RecruitmentCampaign';
+import CandidatePortal from './pages/recruitment/CandidatePortal';
+import ApplyPage from './pages/recruitment/ApplyPage';
 import SecurityCheck from './pages/SecurityCheck';
 import BillingSuccess from './pages/BillingSuccess';
 import Privacy from './pages/Privacy';
@@ -63,6 +68,8 @@ const AuthenticatedApp = () => {
       <Route path="/reset-password" element={<ResetPassword />} />
       <Route path="/privacy" element={<Privacy />} />
       <Route path="/terms" element={<Terms />} />
+      <Route path="/r/:token" element={<CandidatePortal />} />
+      <Route path="/apply/:slug" element={<ApplyPage />} />
       <Route
         element={<ProtectedRoute unauthenticatedElement={<Navigate to="/login" replace />} />}
       >
@@ -71,6 +78,9 @@ const AuthenticatedApp = () => {
         <Route path="/tasks" element={<TaskBoard />} />
         <Route path="/agents/new" element={<AgentCreator />} />
         <Route path="/agents/:id" element={<AgentDetail />} />
+        <Route path="/recruitment" element={<RecruitmentHome />} />
+        <Route path="/recruitment/new" element={<RecruitmentNew />} />
+        <Route path="/recruitment/:id" element={<RecruitmentCampaign />} />
         <Route path="/usage" element={<AdminUsage />} />
         <Route path="/security-check" element={<SecurityCheck />} />
         <Route path="/billing/success" element={<BillingSuccess />} />

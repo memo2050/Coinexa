@@ -27,6 +27,7 @@ let orgId;
 const PUBLIC = ['/', '/login', '/register', '/forgot-password', '/reset-password', '/privacy', '/terms', '/does-not-exist'];
 const USER = ['/agents', '/agents/new', '/tasks', '/security-check', '/billing/success', '/agents/:id'];
 const ADMIN = ['/admin', '/admin/agents', '/admin/runs', '/admin/usage', '/admin/customers', '/admin/billing', '/admin/reports', '/admin/activity', '/inbox', '/usage'];
+const PUBLIC_AFTER = [];
 const VIEWPORTS = { desktop: { width: 1440, height: 900 }, mobile: { width: 390, height: 844, isMobile: true, hasTouch: true } };
 
 const rows = [];
@@ -77,7 +78,7 @@ async function visit(context, role, vp, path) {
   } catch (e) {
     consoleErrors.push(`navigation: ${e.message.slice(0, 150)}`);
   }
-  const name = `${role}_${vp}_${path.replace(/\//g, '_').replace(/^_/, '') || 'home'}`.replace(/[^a-z0-9_-]/gi, '');
+  const name = `${role}_${vp}_${path.replace(/\/r\/.+/, '/portal').replace(/\/apply\/.+/, '/apply').replace(/\//g, '_').replace(/^_/, '') || 'home'}`.replace(/[^a-z0-9_-]/gi, '').slice(0, 90);
   await page.screenshot({ path: `${OUT}/${name}.jpg`, fullPage: true, type: 'jpeg', quality: 60 }).catch(() => {});
   const blank = await page.evaluate(() => (document.body.innerText || '').trim().length < 20).catch(() => true);
   rows.push({ role, vp, path, finalPath, heading, ms: Date.now() - started, blank, consoleErrors, failed });
@@ -128,11 +129,33 @@ async function main() {
     }).select('id').single();
     await admin.from('agent_tasks').insert({ agent_id: agent.id, agent_name: 'Nova (UI test)', organization_id: orgId, created_by_id: userId, created_by: email, task: 'Draft a reply to a customer', status: 'succeeded', output: 'Hello! Your order ships tomorrow.' });
 
+    // A recruitment campaign with one candidate and a portal link, so those pages have content.
+    const { data: camp } = await admin.from('recruitment_campaigns').insert({
+      organization_id: orgId, title: 'IT Help Desk Technician', specialization: 'IT support', country: 'Egypt', city: 'Cairo',
+      positions_required: 3, skills: ['Windows troubleshooting', 'Microsoft Office', 'Basic networking'], experience_min: 1, experience_max: 3,
+      duration: '5 days', currency: 'USD', pay_frequency: 'daily', initial_offer: 120, max_budget: 150, description: 'UI test campaign.',
+      created_by_id: userId, created_by: email,
+    }).select('id, apply_slug').single();
+    const portalToken = `ui${crypto.randomUUID().replace(/-/g, '')}${crypto.randomUUID().replace(/-/g, '')}`;
+    const digest = [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(portalToken)))].map((b) => b.toString(16).padStart(2, '0')).join('');
+    await admin.from('recruitment_candidates').insert({
+      organization_id: orgId, campaign_id: camp.id, full_name: 'Mona (UI test)', country: 'Egypt', city: 'Cairo', experience_years: 2,
+      skills: ['Windows'], source: 'referral', status: 'contacted', portal_token_hash: digest, portal_expires_at: new Date(Date.now() + 86400000).toISOString(),
+    });
+    USER.push('/recruitment', '/recruitment/new', `/recruitment/${camp.id}`);
+    PUBLIC_AFTER.push(`/apply/${camp.apply_slug}`, `/r/${portalToken}`);
+
     for (const [vp, viewport] of Object.entries(VIEWPORTS)) {
       const userCtx = await browser.newContext({ viewport, isMobile: !!viewport.isMobile, hasTouch: !!viewport.hasTouch, storageState: state });
       for (const p of USER) await visit(userCtx, 'user', vp, p.replace(':id', agent.id));
       await visit(userCtx, 'user', vp, '/admin'); // must be refused for a regular user
       await userCtx.close();
+    }
+
+    for (const [vp, viewport] of Object.entries(VIEWPORTS)) {
+      const anon = await browser.newContext({ viewport, isMobile: !!viewport.isMobile, hasTouch: !!viewport.hasTouch });
+      for (const p of PUBLIC_AFTER) await visit(anon, 'visitor', vp, p);
+      await anon.close();
     }
 
     await admin.from('profiles').update({ role: 'admin' }).eq('id', userId);
@@ -149,7 +172,7 @@ async function main() {
 async function cleanup() {
   try {
     if (orgId) {
-      for (const t of ['agent_tasks', 'usage_records', 'audit_logs', 'agents', 'organization_members']) await admin.from(t).delete().eq('organization_id', orgId);
+      for (const t of ['recruitment_campaigns', 'agent_tasks', 'usage_records', 'audit_logs', 'agents', 'organization_members']) await admin.from(t).delete().eq('organization_id', orgId);
       await admin.from('organizations').delete().eq('id', orgId);
     }
     if (userId) {

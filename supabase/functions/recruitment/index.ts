@@ -1013,6 +1013,9 @@ async function publicAction(req: Request, body: Row) {
 async function uploadCv(req: Request) {
   const form = await req.formData();
   const candidate = await candidateByToken(String(form.get('token') || ''));
+  if ((await latestConsents(candidate.id)).data_processing?.granted !== true) {
+    throw fail('Please agree to the processing of your information before uploading a CV.');
+  }
   const file = form.get('file');
   if (!(file instanceof File)) throw fail('Choose a file.');
   if (file.size > 5 * 1024 * 1024) throw fail('The CV must be 5 MB or smaller.');
