@@ -12,9 +12,24 @@ const PLAN_LABEL = {
 export default function BillingSuccess() {
   const [plan, setPlan] = useState(null);
   const [loading, setLoading] = useState(true);
+  const params = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '');
+  const hireSession = params.get('hire') === '1' ? params.get('session_id') : null;
+  const [hire, setHire] = useState(null);
 
   useEffect(() => {
     let active = true;
+    if (hireSession) {
+      // Individual agent hire: the server checks the session with Stripe and records the hire.
+      const check = (attempt) => base44.functions.invoke('agentBilling', { action: 'confirmCheckout', session_id: hireSession })
+        .then((r) => {
+          if (!active) return;
+          if (r?.data?.hired || attempt >= 5) { setHire(r?.data || {}); setLoading(false); }
+          else setTimeout(() => check(attempt + 1), 2000);
+        })
+        .catch(() => active && (setHire({ hired: false }), setLoading(false)));
+      check(0);
+      return () => { active = false; };
+    }
     base44.functions
       .invoke('manageOrganization', { action: 'bootstrap' })
       .then((response) => {
@@ -40,6 +55,10 @@ export default function BillingSuccess() {
           <span className="inline-flex items-center gap-2">
             <Loader2 className="h-4 w-4 animate-spin" /> Confirming your plan…
           </span>
+        ) : hireSession ? (
+          hire?.hired
+            ? <>Your agent is hired. It shows <span className="font-semibold text-emerald-300">Hired</span> on your agents page. Receipts are emailed by Stripe.</>
+            : <>Your payment went through. The agent activates as soon as Stripe confirms it, usually within a minute.</>
         ) : plan ? (
           <>
             Your workspace is on the{' '}

@@ -10,6 +10,7 @@
 // be set as a spend limit on the Anthropic key itself).
 
 import { currentContext } from './context.ts';
+import { underCostCap, addCost } from './agentBilling.ts';
 
 const API = 'https://api.anthropic.com/v1/messages';
 const API_VERSION = '2023-06-01';
@@ -144,6 +145,10 @@ export function makeInvokeLLM(service: Service) {
     const key = env('ANTHROPIC_API_KEY');
     if (!key) throw Object.assign(new Error('The AI provider is not configured.'), { status: 503 });
     await guardBudget(service);
+    // Per-agent AI cost cap for the usage period this request reserved (if any).
+    if (!(await underCostCap(service as any))) {
+      throw Object.assign(new Error('This agent has reached its monthly processing limit. It resumes next billing period.'), { status: 429 });
+    }
 
     const name = model();
     const schema = args.response_json_schema;
@@ -229,12 +234,14 @@ export function makeInvokeLLM(service: Service) {
       failure = String((error as Error)?.message || error).slice(0, 500);
       throw error;
     } finally {
+      const callCost = Number(costOf(name, inputTokens, outputTokens, searches).toFixed(6));
+      await addCost(service as any, callCost);
       await ledger(service, {
         model: name,
         input_tokens: inputTokens,
         output_tokens: outputTokens,
         web_searches: searches,
-        cost_usd: Number(costOf(name, inputTokens, outputTokens, searches).toFixed(6)),
+        cost_usd: callCost,
         ok,
         ...(failure ? { error: failure } : {}),
       });

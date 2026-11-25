@@ -2,10 +2,10 @@ import { Link } from 'react-router-dom';
 import { ArrowUpRight, GripVertical, Wrench } from 'lucide-react';
 import AgentStatusPill from '@/components/agents/AgentStatusPill';
 import { displayStatus } from '@/components/agents/agentStatus';
-import { HIRED_GLOW, HiredBadge, useHiredWorkspaces } from '@/components/agents/hired';
+import { HIRED_GLOW, HiredBadge, useAgentBilling } from '@/components/agents/hired';
 
 export default function AgentBoardCard({ agent, dragging = false }) {
-  const hired = useHiredWorkspaces().isHired(agent);
+  const hired = useAgentBilling().isHired(agent);
   return (
     <article
       className={`rounded-xl border p-3.5 transition-all duration-200 ${

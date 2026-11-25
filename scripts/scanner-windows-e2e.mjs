@@ -103,6 +103,10 @@ async function main() {
   const boot = await fn('manageOrganization', { action: 'bootstrap' });
   orgId = boot.data.organization?.id;
   if (!orgId) throw new Error(`workspace bootstrap failed: ${JSON.stringify(boot.data)}`);
+  // The Cyber Security Scan agent is hired for this workspace (as after a confirmed payment).
+  await admin.from('agent_hires').insert({ organization_id: orgId, subject: 'featured:cyber-scan', plan_key: 'cyber-scan', status: 'active',
+    stripe_subscription_id: `sub_win_${runId}`, stripe_item_id: `si_win_${runId}`,
+    current_period_start: new Date(Date.now() - 864e5).toISOString(), current_period_end: new Date(Date.now() + 29 * 864e5).toISOString() });
 
   // Test services on this machine only: an HTTP server and an FTP-style greeting.
   const servers = [

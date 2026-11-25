@@ -3,10 +3,12 @@ import { Link } from 'react-router-dom';
 import { ArrowUpRight, Pause, Play, Trash2, Wrench } from 'lucide-react';
 import AgentStatusPill from '@/components/agents/AgentStatusPill';
 import { displayStatus } from '@/components/agents/agentStatus';
-import { HIRED_GLOW, HiredBadge, useHiredWorkspaces } from '@/components/agents/hired';
+import { HIRED_GLOW, HiredBadge, useAgentBilling } from '@/components/agents/hired';
+import AgentBillingRow, { DraftingBadge } from '@/components/agents/AgentBillingRow';
 
 export default function AgentCard({ agent, onStatusChange, onDelete }) {
-  const hired = useHiredWorkspaces().isHired(agent);
+  const billing = useAgentBilling();
+  const hired = billing.isHired(agent);
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -39,6 +41,7 @@ export default function AgentCard({ agent, onStatusChange, onDelete }) {
         <div className="flex shrink-0 flex-col items-end gap-1.5">
           {hired && <HiredBadge />}
           <AgentStatusPill status={displayStatus(agent)} />
+          <DraftingBadge />
         </div>
       </div>
 
@@ -62,6 +65,8 @@ export default function AgentCard({ agent, onStatusChange, onDelete }) {
           </span>
         )}
       </div>
+
+      <AgentBillingRow billing={billing} state={billing.forAgent(agent)} agentId={agent.id} name={agent.name} compact />
 
       <div className="relative mt-auto flex items-center gap-2 border-t border-white/[0.07] pt-4">
         <Link

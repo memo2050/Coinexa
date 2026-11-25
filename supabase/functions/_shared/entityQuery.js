@@ -161,9 +161,9 @@ export function applySort(builder, sort) {
 // BEGIN GENERATED COLUMNS (scripts/gen-columns.mjs — do not edit by hand)
 export const COLUMNS = {
   profiles: new Set(["id","email","full_name","role","organization_ids","created_date","updated_date"]),
-  organizations: new Set(["id","name","slug","industry","size","plan","status","internal","data_class","stripe_customer_id","stripe_subscription_id","task_limit_month","agent_limit","seat_limit","concurrent_limit","created_date","updated_date","created_by_id","created_by"]),
+  organizations: new Set(["id","name","slug","industry","size","plan","status","internal","data_class","stripe_customer_id","stripe_subscription_id","task_limit_month","agent_limit","seat_limit","concurrent_limit","created_date","updated_date","created_by_id","created_by","agent_subscription_id"]),
   organization_members: new Set(["id","organization_id","user_id","email","full_name","member_role","status","joined_at","created_date","updated_date","created_by_id","created_by"]),
-  agents: new Set(["id","name","organization_id","specialization","industry_key","industry","business_name","business_description","tasks","responsibilities","permissions","tone","tools","role","summary","goals","workflow","workflow_graph","workflow_version","workflow_enabled","knowledge_requirements","safety_rules","system_instructions","last_run_status","last_run_at","status","created_date","updated_date","created_by_id","created_by"]),
+  agents: new Set(["id","name","organization_id","specialization","industry_key","industry","business_name","business_description","tasks","responsibilities","permissions","tone","tools","role","summary","goals","workflow","workflow_graph","workflow_version","workflow_enabled","knowledge_requirements","safety_rules","system_instructions","last_run_status","last_run_at","status","created_date","updated_date","created_by_id","created_by","catalog_key"]),
   agent_tasks: new Set(["id","execution_id","idempotency_key","agent_id","agent_name","organization_id","task","output","status","error","steps","approvals","progress","current_node","awaiting_approval","workflow_version","warnings","attachments","attachment_names","duration_ms","started_at","finished_at","created_date","updated_date","created_by_id","created_by"]),
   agent_uploads: new Set(["id","file_uri","file_name","organization_id","created_date","updated_date","created_by_id","created_by"]),
   research_reports: new Set(["id","query","organization_id","market","suppliers","assumptions","products","product_count","overall_confidence","sources","limitations","summary","researched_at","agent_id","xlsx_file_uri","xlsx_generated_at","created_date","updated_date","created_by_id","created_by"]),
@@ -184,6 +184,10 @@ export const COLUMNS = {
   security_devices: new Set(["id","organization_id","name","platform","app_version","public_key","status","paired_at","last_seen_at","revoked_at","revoked_by","created_date","updated_date","created_by_id","created_by"]),
   security_scans: new Set(["id","organization_id","device_id","nonce","signed_at","payload_sha256","schema_version","scanner_version","started_at","finished_at","networks_enc","network_summary","authorized_by","authorization_statement","host_count","open_port_count","status","created_date","updated_date","created_by_id","created_by"]),
   security_scan_hosts: new Set(["id","organization_id","scan_id","identity_enc","ip_sort","vendor","device_type","os_guess","ports","created_date","updated_date","created_by_id","created_by"]),
+  agent_plans: new Set(["key","name","price_cents","currency","meters","unit_label","trial","cost_cap_usd","trial_cost_cap_usd","featured","sort","active","created_date","updated_date"]),
+  agent_hires: new Set(["id","organization_id","subject","agent_id","plan_key","status","stripe_subscription_id","stripe_item_id","current_period_start","current_period_end","ends_at","past_due_since","created_date","updated_date","created_by_id","created_by"]),
+  agent_usage: new Set(["id","organization_id","subject","plan_key","kind","period_start","period_end","used","ai_cost_usd","warned","created_date","updated_date","created_by_id","created_by"]),
+  stripe_events: new Set(["id","type","result","created_date","updated_date","created_by_id","created_by"]),
 };
 // END GENERATED COLUMNS
 

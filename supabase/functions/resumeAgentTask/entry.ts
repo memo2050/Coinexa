@@ -2,6 +2,8 @@ import { createClientFromRequest } from '../_shared/base44shim.ts';
 import { executeWorkflow, MODEL_LABEL } from '../_shared/workflowRunner.ts';
 import { logAudit, recordUsage } from '../_shared/tenancy.ts';
 import { consumeActionQuota } from '../_shared/rateLimits.ts';
+import { service as serviceClient } from '../_shared/base44shim.ts';
+import { attachCurrent, planOf } from '../_shared/agentBilling.ts';
 
 export default async function (req) {
   try {
@@ -48,6 +50,10 @@ export default async function (req) {
     if (!graph || !Array.isArray(graph.nodes)) {
       return Response.json({ error: 'This agent has no saved workflow to resume.' }, { status: 400 });
     }
+
+    // The run's unit was taken when it started; the steps after approval only add
+    // their AI cost to the agent's current period (and stop at its cost cap).
+    await attachCurrent(serviceClient(), { organizationId: task.organization_id || agent.organization_id || '', subject: agent.id, plan: planOf(agent) });
 
     // Attachments belong to the whole run, so they are signed again for the
     // steps that execute after the approval decision.

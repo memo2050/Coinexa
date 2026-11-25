@@ -23,6 +23,7 @@ import {
   type NegotiationTerms, type Strategy,
 } from '../_shared/recruitmentLogic.ts';
 import * as iv from './interviews.ts';
+import { reserve as reserveUsage, attachCurrent, planRow, featuredSubject } from '../_shared/agentBilling.ts';
 
 const db = () => service();
 const env = (name: string, fallback = '') => Deno.env.get(name) || fallback;
@@ -412,6 +413,17 @@ async function issuePortalLink(candidate: Row) {
 
 const deps: iv.Deps = { db, must, fail, event, invokeAI, fmtMoney };
 
+// Recruitment allowance (featured agent, billed per workspace): campaigns, candidate
+// evaluations and written interviews are units; other AI work only counts toward the
+// plan's monthly cost cap.
+const RECRUITMENT = 'recruitment';
+async function useRecruitment(orgId: string, meter: 'campaign' | 'evaluation' | 'interview') {
+  const lease = await reserveUsage(db(), { organizationId: orgId, subject: featuredSubject(RECRUITMENT), plan: RECRUITMENT, meter, planRow: await planRow(db(), RECRUITMENT) });
+  if (!lease.ok) throw Object.assign(fail(lease.message || 'Recruitment allowance reached.', lease.status || 429), { billing: lease.info });
+  return lease;
+}
+const recruitmentCost = (orgId: string) => attachCurrent(db(), { organizationId: orgId, subject: featuredSubject(RECRUITMENT), plan: RECRUITMENT });
+
 async function latestInterview(candidateId: string) {
   return (await must(db().from('recruitment_interviews').select('*').eq('candidate_id', candidateId).neq('status', 'cancelled')
     .order('created_date', { ascending: false }).limit(1).maybeSingle())) as Row | null;
@@ -423,6 +435,8 @@ async function companyAction(req: Request, body: Row) {
   const { base44, user, org, manage, role } = await companyContext(req);
   const orgId = org.id as string;
   const action = clean(body.action, 40);
+  // AI work that is not itself a unit counts toward the recruitment cost cap.
+  if (['draftMessage', 'contactQualified', 'generateInterviewPlan', 'evaluateInterview'].includes(action)) await recruitmentCost(orgId);
 
   if (action === 'overview') {
     const campaigns = await must(db().from('recruitment_campaigns').select('*').eq('organization_id', orgId).order('created_date', { ascending: false }).limit(200)) as Row[];
@@ -459,7 +473,14 @@ async function companyAction(req: Request, body: Row) {
   if (action === 'createCampaign') {
     requireManage(manage);
     const data = campaignInput(body.campaign || {});
-    const row = await must(db().from('recruitment_campaigns').insert({ ...data, organization_id: orgId, status: 'active', created_by_id: user.id, created_by: user.email }).select('*').single()) as Row;
+    const lease = await useRecruitment(orgId, 'campaign');
+    let row: Row;
+    try {
+      row = await must(db().from('recruitment_campaigns').insert({ ...data, organization_id: orgId, status: 'active', created_by_id: user.id, created_by: user.email }).select('*').single()) as Row;
+    } catch (error) {
+      await lease.release();
+      throw error;
+    }
     await event(orgId, 'campaign.created', `Campaign “${row.title}” created: ${row.positions_required} × ${row.title} in ${[row.city, row.country].filter(Boolean).join(', ')}; budget up to ${fmtMoney(Number(row.max_budget), row)}.`, { campaign_id: row.id });
     await audit(orgId, user, 'recruitment.campaign_created', 'RecruitmentCampaign', row.id, row.title);
     return { campaign: row };
@@ -584,6 +605,13 @@ async function companyAction(req: Request, body: Row) {
     const errors: string[] = [];
     for (const candidate of targets) {
       if (candidate.campaign_id !== campaign.id) continue;
+      let lease;
+      try {
+        lease = await useRecruitment(orgId, 'evaluation');
+      } catch (error) {
+        errors.push((error as Error).message);
+        break;
+      }
       try {
         const { score, explanation } = await evaluateOne(base44, campaign, candidate);
         const status = candidate.status === 'sourced' ? 'evaluated' : candidate.status;
@@ -591,6 +619,7 @@ async function companyAction(req: Request, body: Row) {
         await event(orgId, 'candidate.evaluated', `${candidate.full_name}: match score ${score}/100${explanation.unverified_claims_removed ? ` (${explanation.unverified_claims_removed} unverifiable claim(s) removed)` : ''}.`, { campaign_id: campaign.id, candidate_id: candidate.id });
         done.push({ id: candidate.id, score });
       } catch (error) {
+        await lease.release();
         const message = (error as Error).message;
         errors.push(`${candidate.full_name}: ${message}`);
         await event(orgId, 'candidate.evaluation_failed', `${candidate.full_name}: ${message}`, { campaign_id: campaign.id, candidate_id: candidate.id, level: 'error' });
@@ -815,10 +844,17 @@ async function companyAction(req: Request, body: Row) {
     const plan = await must(db().from('recruitment_interview_plans').select('*').eq('campaign_id', campaign.id).maybeSingle()) as Row | null;
     if (!plan || plan.status !== 'approved') throw fail('Approve the interview questions for this campaign first (Interviews tab).', 409);
     await must(db().from('recruitment_interviews').update({ status: 'cancelled' }).eq('candidate_id', candidate.id).in('status', ['invited', 'in_progress']));
-    const interview = await must(db().from('recruitment_interviews').insert({
+    const interviewLease = await useRecruitment(orgId, 'interview');
+    let interview: Row;
+    try {
+      interview = await must(db().from('recruitment_interviews').insert({
       organization_id: orgId, campaign_id: campaign.id, candidate_id: candidate.id, questions: plan.questions, max_followups: plan.max_followups,
       expires_at: new Date(Date.now() + plan.valid_days * 86400000).toISOString(), created_by_id: user.id, created_by: user.email,
     }).select('*').single()) as Row;
+    } catch (error) {
+      await interviewLease.release();
+      throw error;
+    }
     const first = candidate.full_name.split(' ')[0];
     const message = await must(db().from('recruitment_messages').insert({
       organization_id: orgId, campaign_id: campaign.id, candidate_id: candidate.id, direction: 'out', channel: 'email', kind: 'interview_invite',
@@ -878,6 +914,7 @@ async function importCvFiles(req: Request, form: FormData) {
   requireManage(manage);
   const orgId = org.id as string;
   const campaign = await campaignFor(orgId, String(form.get('campaign_id') || ''));
+  await recruitmentCost(orgId);
   const files = form.getAll('files').filter((f): f is File => f instanceof File);
   if (!files.length) throw fail('Choose at least one PDF.');
   if (files.length > 5) throw fail('Import up to 5 CVs at a time.');
@@ -1154,6 +1191,7 @@ async function publicAction(req: Request, body: Row) {
 
   if (action.startsWith('portal_interview_')) {
     const candidate = await candidateByToken(body.token);
+    await recruitmentCost(candidate.organization_id);
     const interview = await latestInterview(candidate.id);
     if (!interview) throw fail('There is no interview for you yet.', 404);
     const campaign = await must(db().from('recruitment_campaigns').select('*').eq('id', candidate.campaign_id).single()) as Row;
@@ -1239,6 +1277,7 @@ async function publicAction(req: Request, body: Row) {
 // CV upload (multipart): portal token or application follow-up, PDF/DOC/DOCX up to 5 MB.
 async function uploadCv(req: Request, form: FormData) {
   const candidate = await candidateByToken(String(form.get('token') || ''));
+  await recruitmentCost(candidate.organization_id);
   if ((await latestConsents(candidate.id)).data_processing?.granted !== true) {
     throw fail('Please agree to the processing of your information before uploading a CV.');
   }

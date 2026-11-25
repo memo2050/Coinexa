@@ -20,6 +20,7 @@ import { createClientFromRequest, service } from '../_shared/base44shim.ts';
 import { ensureOrganization, membershipFor, canManage } from '../_shared/tenancy.ts';
 import { requestContext } from '../_shared/context.ts';
 import { encryptJson, decryptJson } from '../_shared/recruitmentLogic.ts';
+import { reserve as reserveUsage, planRow, featuredSubject } from '../_shared/agentBilling.ts';
 import {
   validateScan, ScanRejected, verifyEd25519, uploadMessage, pairMessage, timestampFresh, newPairingCode, normaliseCode,
   sha256Hex, networkSummary, NONCE_RE, PUBLIC_KEY_RE, MAX_PAYLOAD_BYTES, AUTH_STATEMENT_VERSION,
@@ -250,6 +251,13 @@ async function deviceUpload(body: Row, rawLength: number) {
     throw error;
   }
 
+  // Each accepted scan uses one of the plan's scans (60 a month; 3 on the free trial).
+  const lease = await reserveUsage(db(), {
+    organizationId: device.organization_id, subject: featuredSubject('cyber-scan'), plan: 'cyber-scan', meter: 'scan',
+    planRow: await planRow(db(), 'cyber-scan'),
+  });
+  if (!lease.ok) throw fail(lease.message || 'Scan allowance reached.', lease.status || 429);
+
   const key = dataKey();
   let row: Row;
   try {
@@ -261,6 +269,7 @@ async function deviceUpload(body: Row, rawLength: number) {
       host_count: scan.hosts.length, open_port_count: scan.open_port_count,
     }).select('id').single()) as Row;
   } catch (error) {
+    await lease.release();
     if ((error as { code?: string }).code === '23505') throw fail('This upload was already received (replayed request).', 409);
     throw error;
   }
@@ -278,6 +287,7 @@ async function deviceUpload(body: Row, rawLength: number) {
     }
   } catch (error) {
     await db().from('security_scans').delete().eq('id', row.id); // no half-stored scans
+    await lease.release();
     throw error;
   }
   await db().from('security_devices').update({ last_seen_at: new Date().toISOString(), app_version: scan.scanner_version || device.app_version }).eq('id', device.id);

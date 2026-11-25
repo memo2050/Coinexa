@@ -13,7 +13,8 @@ import ResearchPanel from '@/components/research/ResearchPanel';
 import WorkflowPanel from '@/components/workflow/WorkflowPanel';
 import { isResearchAgent } from '@/components/research/researchHelpers';
 import { displayStatus, statusDescriptions } from '@/components/agents/agentStatus';
-import { HiredBadge, useHiredWorkspaces } from '@/components/agents/hired';
+import { HiredBadge, useAgentBilling } from '@/components/agents/hired';
+import AgentBillingRow, { DraftingBadge } from '@/components/agents/AgentBillingRow';
 
 function Chips({ items, empty }) {
   if (!items?.length) return <p className="text-xs text-slate-500">{empty}</p>;
@@ -40,7 +41,8 @@ export default function AgentDetail() {
   const [confirming, setConfirming] = useState(false);
   const [running, setRunning] = useState(false);
   const [historyKey, setHistoryKey] = useState(0);
-  const { isHired } = useHiredWorkspaces();
+  const billing = useAgentBilling();
+  const { isHired } = billing;
 
   useEffect(() => {
     let cancelled = false;
@@ -145,6 +147,7 @@ export default function AgentDetail() {
             <h1 className="font-heading text-3xl font-semibold leading-tight tracking-[-0.02em] sm:text-4xl">{agent.name}</h1>
             <AgentStatusPill status={status} />
             {isHired(agent) && <HiredBadge />}
+            <DraftingBadge />
           </div>
           <p className="mt-2 text-sm text-slate-400">
             {agent.specialization || agent.role || 'AI agent'} · {agent.industry || 'General'}
@@ -154,6 +157,10 @@ export default function AgentDetail() {
             {statusDescriptions[status]}
             {agent.last_run_at ? ` Last run ${moment(agent.last_run_at).fromNow()}.` : ''}
           </p>
+          <p className="mt-2 max-w-2xl text-xs leading-relaxed text-slate-500">
+            Drafting assistant: it prepares work and next steps for you to review.{(agent.tools || []).length ? ` Its listed tools (${agent.tools.slice(0, 4).join(', ')}) are not connected yet, so it describes what it would do in them rather than doing it.` : ''}
+          </p>
+          <div className="max-w-md"><AgentBillingRow billing={billing} state={billing.forAgent(agent)} agentId={agent.id} name={agent.name} allowCancel /></div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">

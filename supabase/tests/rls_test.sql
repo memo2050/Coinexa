@@ -308,4 +308,80 @@ do $$ begin
 end $$;
 rollback;
 
+-- Agent billing: hires and usage are server-only; limits, trials, caps and exemptions hold.
+begin;
+insert into public.agents (id, organization_id, name, status) values ('agent-bill', 'org-c', 'CRM Management Agent', 'active');
+select pg_temp.act_as('00000000-0000-0000-0000-00000000000c', 'c@test.local');
+set local role authenticated;
+do $$ begin
+  begin
+    insert into public.agent_hires (organization_id, subject, plan_key, status, current_period_start, current_period_end)
+      values ('org-c', 'agent-bill', 'crm', 'active', now(), now() + interval '30 days');
+    raise notice 'FAIL: 49 customer created a hire';
+  exception when insufficient_privilege then raise notice 'pass: 49 a customer cannot hire an agent without payment';
+  end;
+  begin
+    perform public.billing_reserve('org-c', 'agent-bill', 'crm', 'unit', 1);
+    raise notice 'FAIL: 50 customer called billing_reserve';
+  exception when insufficient_privilege then raise notice 'pass: 50 customers cannot call the metering functions';
+  end;
+  begin
+    update public.agent_plans set price_cents = 1 where key = 'crm';
+    raise notice 'FAIL: 51 customer changed a price';
+  exception when insufficient_privilege then raise notice 'pass: 51 customers cannot change prices';
+  end;
+  if (select count(*) from public.agent_plans) = 15 then raise notice 'pass: 52 customers can read the public price catalog (15 plans)';
+  else raise notice 'FAIL: 52 catalog not readable'; end if;
+end $$;
+reset role;
+do $$
+declare r jsonb; i int; uid text;
+begin
+  if (select catalog_key from public.agents where id = 'agent-bill') is distinct from null then null; end if;
+  -- trial: 10 units, then refused
+  for i in 1..10 loop r := public.billing_reserve('org-c', 'agent-bill', 'crm', 'unit', 1); end loop;
+  r := public.billing_reserve('org-c', 'agent-bill', 'crm', 'unit', 1);
+  if (r->>'ok')::boolean = false and r->>'reason' = 'trial_over' then raise notice 'pass: 53 an unhired agent stops after its 10 free trial tasks';
+  else raise notice 'FAIL: 53 trial not enforced: %', r; end if;
+  -- a paid hire (as the webhook writes it): 300 per period, then refused
+  insert into public.agent_hires (organization_id, subject, agent_id, plan_key, status, current_period_start, current_period_end)
+    values ('org-c', 'agent-bill', 'agent-bill', 'crm', 'active', now() - interval '1 day', now() + interval '29 days');
+  r := public.billing_reserve('org-c', 'agent-bill', 'crm', 'unit', 299);
+  uid := r->>'usage_id';
+  r := public.billing_reserve('org-c', 'agent-bill', 'crm', 'unit', 1);
+  if (r->>'ok')::boolean and (r->>'used')::int = 300 then null; else raise notice 'FAIL: 54 hire allowance: %', r; end if;
+  r := public.billing_reserve('org-c', 'agent-bill', 'crm', 'unit', 1);
+  if (r->>'ok')::boolean = false and r->>'reason' = 'limit' and (r->>'allowance')::int = 300 then raise notice 'pass: 54 a hired CRM agent stops at exactly 300 tasks';
+  else raise notice 'FAIL: 54 limit not enforced: %', r; end if;
+  perform public.billing_release(uid, 'unit', 1);
+  r := public.billing_reserve('org-c', 'agent-bill', 'crm', 'unit', 1);
+  if (r->>'ok')::boolean then raise notice 'pass: 55 a failed task gives its unit back';
+  else raise notice 'FAIL: 55 release: %', r; end if;
+  -- cost cap ($18 for CRM)
+  if public.billing_add_cost(uid, 17.99) and not public.billing_add_cost(uid, 0.02) then
+    r := public.billing_reserve('org-c', 'agent-bill', 'crm', 'unit', 1);
+    if r->>'reason' = 'cost_cap' and not public.billing_under_cap(uid) then raise notice 'pass: 56 the agent stops at its $18 AI cost cap even with tasks left';
+    else raise notice 'FAIL: 56 cost cap: %', r; end if;
+  else raise notice 'FAIL: 56 add_cost'; end if;
+  -- the owner's internal workspace is not metered
+  update public.organizations set internal = true where id = 'org-c';
+  r := public.billing_reserve('org-c', 'agent-bill', 'crm', 'unit', 1);
+  if (r->>'exempt')::boolean then raise notice 'pass: 57 the internal owner workspace is not metered';
+  else raise notice 'FAIL: 57 internal: %', r; end if;
+  update public.organizations set internal = false where id = 'org-c';
+  -- a cancelled hire keeps working until the paid period ends, then stops
+  update public.agent_hires set status = 'cancelled', ends_at = now() - interval '1 minute' where organization_id = 'org-c' and subject = 'agent-bill';
+  if (public.billing_live_hire('org-c', 'agent-bill')).id is null then raise notice 'pass: 58 a cancelled hire ends when its paid period ends';
+  else raise notice 'FAIL: 58 cancelled hire still live'; end if;
+  begin
+    insert into public.agent_hires (organization_id, subject, plan_key, status, current_period_start, current_period_end)
+      values ('org-c', 'agent-bill', 'crm', 'active', now(), now() + interval '30 days');
+    insert into public.agent_hires (organization_id, subject, plan_key, status, current_period_start, current_period_end)
+      values ('org-c', 'agent-bill', 'crm', 'active', now(), now() + interval '30 days');
+    raise notice 'FAIL: 59 two live hires for one agent';
+  exception when unique_violation then raise notice 'pass: 59 an agent can only be hired once at a time';
+  end;
+end $$;
+rollback;
+
 select 'ALL RLS CHECKS PASSED' as result;

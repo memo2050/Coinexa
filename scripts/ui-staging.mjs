@@ -123,14 +123,20 @@ async function main() {
     orgId = ws.id;
     await admin.from('organization_members').insert({ organization_id: orgId, user_id: userId, email, member_role: 'owner', status: 'active' });
     await admin.from('profiles').update({ organization_ids: [orgId] }).eq('id', userId);
-    // Confirmed payment, exactly as the signature-verified Stripe webhook records it, so
-    // agent pages show the Hired status (red glow + green label).
-    await admin.from('organizations').update({ stripe_subscription_id: 'sub_ui_test_confirmed', stripe_customer_id: 'cus_ui_test' }).eq('id', orgId);
+
     const { data: agent } = await admin.from('agents').insert({
       name: 'Nova (UI test)', organization_id: orgId, created_by_id: userId, created_by: email, role: 'Support assistant',
       specialization: 'Customer support', industry: 'E-commerce', status: 'active', tone: 'Friendly', summary: 'Answers customer questions.',
       goals: ['Reply fast'], workflow: ['Read the question', 'Draft a reply'], workflow_enabled: true,
     }).select('id').single();
+    // Hires exactly as the signature-verified Stripe webhook records them after payment,
+    // so pages show Hired (red glow + green label) and usage for the paid agents only.
+    const period = { current_period_start: new Date(Date.now() - 864e5).toISOString(), current_period_end: new Date(Date.now() + 29 * 864e5).toISOString() };
+    await admin.from('agent_hires').insert([
+      { organization_id: orgId, subject: agent.id, agent_id: agent.id, plan_key: 'custom', status: 'active', stripe_subscription_id: 'sub_ui_test', stripe_item_id: `si_ui_${runId}_1`, ...period },
+      { organization_id: orgId, subject: 'featured:recruitment', plan_key: 'recruitment', status: 'active', stripe_subscription_id: 'sub_ui_test', stripe_item_id: `si_ui_${runId}_2`, ...period },
+    ]);
+    await admin.from('agents').insert({ name: 'Iris (UI test, not hired)', organization_id: orgId, created_by_id: userId, created_by: email, role: 'Research assistant', status: 'active', catalog_key: 'hazel', summary: 'Researches products.' });
     await admin.from('agent_tasks').insert({ agent_id: agent.id, agent_name: 'Nova (UI test)', organization_id: orgId, created_by_id: userId, created_by: email, task: 'Draft a reply to a customer', status: 'succeeded', output: 'Hello! Your order ships tomorrow.' });
 
     // A recruitment campaign with one candidate and a portal link, so those pages have content.

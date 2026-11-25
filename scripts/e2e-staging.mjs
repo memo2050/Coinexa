@@ -273,6 +273,10 @@ async function main() {
   });
   await admin.from('profiles').update({ role: 'user' }).eq('id', A.id);
 
+  // Recruitment and Cyber Security Scan run below as hired agents (as after a payment).
+  await hireForTest(orgA, 'featured:recruitment', 'recruitment');
+  await hireForTest(orgA, 'featured:cyber-scan', 'cyber-scan');
+
   // ---------------- Recruitment agent ----------------
   await recruitmentChecks(A, B);
 
@@ -281,6 +285,9 @@ async function main() {
 
   // ---------------- Hired status ----------------
   await hiredChecks(A, B, orgA, orgB);
+
+  // ---------------- Individual agent billing ----------------
+  await billingChecks(A, B, orgA, orgB);
 
   // ---------------- AI features ----------------
   if (!RUN_AI) {
@@ -367,6 +374,146 @@ async function portalLinkFor(candidateId) {
   return token;
 }
 const R = (token, body) => call(token, 'recruitment', body);
+
+// A hire exactly as the Stripe webhook records it after a confirmed payment (tests only).
+async function hireForTest(orgId, subject, planKey, agentId = null) {
+  const now = Date.now();
+  const { error } = await admin.from('agent_hires').insert({
+    organization_id: orgId, subject, agent_id: agentId, plan_key: planKey, status: 'active',
+    stripe_subscription_id: `sub_e2e_${runId}`, stripe_item_id: `si_e2e_${runId}_${subject.replace(/[^a-z0-9]/gi, '')}`,
+    current_period_start: new Date(now - 86400000).toISOString(), current_period_end: new Date(now + 29 * 86400000).toISOString(),
+  });
+  if (error) throw new Error(`test hire failed: ${error.message}`);
+}
+
+// ---------------------------------------------------- Individual agent billing --
+const BILL = (token, body) => call(token, 'agentBilling', body);
+async function billingChecks(A, B, orgA, orgB) {
+  await check('billing', 'price catalog: 15 agent plans at the agreed launch prices', async () => {
+    const r = await BILL(A.token, { action: 'overview' });
+    if (r.status !== 200) throw new Error(`${r.status} ${JSON.stringify(r.data).slice(0, 200)}`);
+    const price = Object.fromEntries(r.data.plans.map((p) => [p.key, p.price_cents / 100]));
+    const ok = r.data.plans.length === 15 && price.recruitment === 79 && price['cyber-scan'] === 29 && price['customer-support'] === 29 && price['flight-booking'] === 19 && price.hazel === 39 && price.legal === 49;
+    return ok ? `payments ${r.data.payments_ready ? 'ready (test mode)' : 'not set up yet'}` : { fail: JSON.stringify(price) };
+  });
+  await check('billing', 'customers cannot create hires, change usage or prices directly', async () => {
+    const h = await B.client.from('agent_hires').insert({ organization_id: orgB, subject: 'x', plan_key: 'crm', status: 'active', current_period_start: new Date().toISOString(), current_period_end: new Date(Date.now() + 864e5).toISOString() });
+    const u = await B.client.from('agent_usage').update({ used: {} }).eq('organization_id', orgB);
+    const p = await B.client.from('agent_plans').update({ price_cents: 1 }).eq('key', 'crm');
+    const rpc = await B.client.rpc('billing_reserve', { p_org: orgB, p_subject: 'x', p_plan: 'crm', p_meter: 'unit', p_units: 1 });
+    const { data: plan } = await admin.from('agent_plans').select('price_cents').eq('key', 'crm').single();
+    return h.error && rpc.error && plan.price_cents === 3900 ? true : { fail: JSON.stringify({ h: h.error, u: u.error, p: p.error, rpc: rpc.error, price: plan.price_cents }) };
+  });
+  await check('billing', 'only an owner/admin can hire; another company cannot hire this workspace\'s agent', async () => {
+    const { data: agent } = await admin.from('agents').insert({ name: `Billing test ${runId}`, organization_id: orgA, created_by_id: A.id, created_by: A.email, status: 'active', catalog_key: 'crm' }).select('id').single();
+    const other = await BILL(B.token, { action: 'hire', agent_id: agent.id });
+    await admin.from('organization_members').update({ member_role: 'member' }).eq('organization_id', orgA).eq('user_id', A.id);
+    const member = await BILL(A.token, { action: 'hire', agent_id: agent.id });
+    await admin.from('organization_members').update({ member_role: 'owner' }).eq('organization_id', orgA).eq('user_id', A.id);
+    const owner = await BILL(A.token, { action: 'hire', agent_id: agent.id });
+    const ownerOk = owner.status === 503 || (owner.status === 200 && /^https:\/\/checkout\.stripe\.com\//.test(owner.data.url || ''));
+    return [404, 503].includes(other.status) && member.status === 403 && ownerOk ? `owner: ${owner.status === 200 ? 'Stripe test checkout opened' : 'payments not set up yet (503)'}` : { fail: `${other.status}/${member.status}/${owner.status} ${JSON.stringify(owner.data).slice(0, 200)}` };
+  });
+
+  // Trial and monthly limits, exercised through scan uploads (no AI cost).
+  const code = (await call(B.token, 'securityScan', { action: 'createPairingCode' })).data.code;
+  const pc = await simulatedPc(URL_, ANON, `BILL-PC-${runId}`);
+  await pc.link(code);
+  await check('billing', 'unhired Cyber Security Scan: 3 free trial scans, then a clear prompt to hire', async () => {
+    const statuses = [];
+    for (let i = 0; i < 4; i += 1) statuses.push((await pc.upload(sampleScan())).response);
+    const last = statuses.at(-1);
+    return statuses.slice(0, 3).every((r) => r.status === 200) && last.status === 402 && /trial/i.test(last.data.error) && /\$29\/month/.test(last.data.error)
+      ? last.data.error : { fail: statuses.map((r) => `${r.status} ${r.data.error || ''}`).join(' | ') };
+  });
+  await check('billing', 'after a confirmed hire: 60 scans per month, then refused with the reset date', async () => {
+    await hireForTest(orgB, 'featured:cyber-scan', 'cyber-scan');
+    const first = (await pc.upload(sampleScan())).response;
+    await admin.from('agent_usage').update({ used: { scan: 60 } }).eq('organization_id', orgB).eq('subject', 'featured:cyber-scan').eq('kind', 'hire');
+    const over = (await pc.upload(sampleScan())).response;
+    const view = await BILL(B.token, { action: 'overview' });
+    const hired = view.data.hires.some((h) => h.subject === 'featured:cyber-scan');
+    return first.status === 200 && over.status === 429 && /60 scans/.test(over.data.error) && /resets on \d{4}-\d{2}-\d{2}/.test(over.data.error) && hired ? over.data.error : { fail: `${first.status} ${over.status} ${over.data.error} hired=${hired}` };
+  });
+  await check('billing', 'a refused scan is not stored and uses no allowance', async () => {
+    const { data: usage } = await admin.from('agent_usage').select('used').eq('organization_id', orgB).eq('subject', 'featured:cyber-scan').eq('kind', 'hire').single();
+    return usage.used.scan === 60 ? true : { fail: JSON.stringify(usage.used) };
+  });
+  await check('billing', 'forged Stripe events are rejected', async () => {
+    const res = await fetch(`${URL_}/functions/v1/stripeWebhook`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'stripe-signature': 't=1,v1=deadbeef' },
+      body: JSON.stringify({ id: 'evt_forged', type: 'checkout.session.completed', data: { object: { metadata: { kind: 'agent_hires', organization_id: orgB, first_subject: 'featured:recruitment' }, payment_status: 'paid' } } }) });
+    const { data } = await admin.from('agent_hires').select('id').eq('organization_id', orgB).eq('subject', 'featured:recruitment');
+    return res.status === 400 && data.length === 0 ? true : { fail: `${res.status} hires=${data.length}` };
+  });
+  if (STRIPE_KEY) await stripeChecks(A, orgA);
+  else await check('billing', 'real Stripe test-mode payment', async () => ({ skip: true, detail: 'needs the Stripe test key (STRIPE_SECRET_KEY) in GitHub' }));
+}
+
+// Real Stripe TEST-mode payment with Stripe's test card: subscription → signed webhook → hire.
+const STRIPE_KEY = /^sk_test_/.test(process.env.STRIPE_SECRET_KEY || '') ? process.env.STRIPE_SECRET_KEY : '';
+async function stripeApi(method, path, params) {
+  const res = await fetch(`https://api.stripe.com/v1${path}`, { method, headers: { Authorization: `Bearer ${STRIPE_KEY}`, 'Content-Type': 'application/x-www-form-urlencoded' }, body: params ? new URLSearchParams(params) : undefined });
+  const j = await res.json();
+  if (!res.ok) throw new Error(`${path}: ${j.error?.message}`);
+  return j;
+}
+async function waitFor(fn, ms = 40000) {
+  const end = Date.now() + ms;
+  while (Date.now() < end) {
+    const v = await fn();
+    if (v) return v;
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+  return null;
+}
+async function stripeChecks(A, orgA) {
+  let sub;
+  const { data: agents } = await admin.from('agents').insert([
+    { name: `Paid CRM ${runId}`, organization_id: orgA, created_by_id: A.id, created_by: A.email, status: 'active', catalog_key: 'crm' },
+    { name: `Paid Support ${runId}`, organization_id: orgA, created_by_id: A.id, created_by: A.email, status: 'active', catalog_key: 'customer-support' },
+    { name: `Unpaid ${runId}`, organization_id: orgA, created_by_id: A.id, created_by: A.email, status: 'active', catalog_key: 'legal' },
+  ]).select('id, catalog_key');
+  const [crm, support, unpaid] = agents;
+  try {
+    await check('billing-stripe', 'Stripe test payment (test card) hires exactly that one agent', async () => {
+      const price = (await stripeApi('GET', '/prices?lookup_keys[]=coinexa_agent_crm_v1&active=true')).data[0];
+      if (!price) throw new Error('crm test price missing: run the Stripe test setup');
+      const customer = await stripeApi('POST', '/customers', { email: A.email, 'metadata[e2e]': runId });
+      await stripeApi('POST', `/payment_methods/pm_card_visa/attach`, { customer: customer.id });
+      await stripeApi('POST', `/customers/${customer.id}`, { 'invoice_settings[default_payment_method]': 'pm_card_visa' });
+      await admin.from('organizations').update({ stripe_customer_id: customer.id }).eq('id', orgA);
+      sub = await stripeApi('POST', '/subscriptions', { customer: customer.id, 'items[0][price]': price.id, 'metadata[kind]': 'agent_hires', 'metadata[organization_id]': orgA, 'metadata[first_subject]': crm.id, 'metadata[first_plan]': 'crm' });
+      const hire = await waitFor(async () => (await admin.from('agent_hires').select('*').eq('organization_id', orgA).eq('subject', crm.id).maybeSingle()).data);
+      const others = (await admin.from('agent_hires').select('subject').eq('organization_id', orgA).in('subject', [support.id, unpaid.id])).data;
+      return hire && hire.status === 'active' && others.length === 0 ? `subscription ${sub.status}; hire ${hire.status} until ${hire.current_period_end.slice(0, 10)}` : { fail: JSON.stringify({ hire, others, status: sub.status }) };
+    });
+    await check('billing-stripe', 'hiring a second agent adds it to the same subscription after confirmation', async () => {
+      const first = await BILL(A.token, { action: 'hire', agent_id: support.id });
+      if (!first.data.needs_confirmation) throw new Error(JSON.stringify(first.data).slice(0, 200));
+      const wrong = await BILL(A.token, { action: 'hire', agent_id: support.id, confirm: true, confirm_price_cents: 1 });
+      const ok = await BILL(A.token, { action: 'hire', agent_id: support.id, confirm: true, confirm_price_cents: 2900 });
+      const items = (await stripeApi('GET', `/subscriptions/${sub.id}`)).items.data.length;
+      return wrong.data.needs_confirmation && ok.status === 200 && ok.data.hired && items === 2 ? 'Customer Support added ($29); subscription has 2 lines' : { fail: JSON.stringify({ wrong: wrong.data, ok: ok.data, items }) };
+    });
+    await check('billing-stripe', 'the overview marks only the paid agents as hired', async () => {
+      const v = await BILL(A.token, { action: 'overview' });
+      const subjects = v.data.hires.map((h) => h.subject);
+      return subjects.includes(crm.id) && subjects.includes(support.id) && !subjects.includes(unpaid.id) ? true : { fail: JSON.stringify(subjects) };
+    });
+    await check('billing-stripe', 'cancelling keeps the agent until the end of the paid period', async () => {
+      const r = await BILL(A.token, { action: 'cancel', agent_id: support.id });
+      const { data: h } = await admin.from('agent_hires').select('status, ends_at, current_period_end').eq('organization_id', orgA).eq('subject', support.id).single();
+      const items = (await stripeApi('GET', `/subscriptions/${sub.id}`)).items.data.length;
+      return r.status === 200 && h.status === 'cancelled' && h.ends_at && items === 1 ? `usable until ${h.ends_at.slice(0, 10)}` : { fail: JSON.stringify({ r: r.data, h, items }) };
+    });
+    await check('billing-stripe', 'a replayed Stripe event is applied only once', async () => {
+      const { data } = await admin.from('stripe_events').select('id, result').like('result', 'agent hire%').order('created_date', { ascending: false }).limit(5);
+      return data.length > 0 ? `${data.length} recent agent-hire events recorded once each` : { fail: 'no events recorded' };
+    });
+  } finally {
+    if (sub) await stripeApi('DELETE', `/subscriptions/${sub.id}`).catch(() => null);
+  }
+}
 
 // ---------------------------------------------------- Hired status (payment-confirmed) --
 async function hiredChecks(A, B, orgA, orgB) {

@@ -9,6 +9,9 @@ import {
   isHttpUrl,
 } from '../_shared/researchEngine.ts';
 import { consumeModelQuota } from '../_shared/rateLimits.ts';
+import { ensureOrganization } from '../_shared/tenancy.ts';
+import { service as serviceClient } from '../_shared/base44shim.ts';
+import { reserve as reserveUsage, planOf, planRow, featuredSubject } from '../_shared/agentBilling.ts';
 
 const clean = (value, max = 400) => (typeof value === 'string' ? value.trim().slice(0, max) : '');
 const toNumber = (value) => {
@@ -87,6 +90,16 @@ export default async function (req) {
     organizationId: agent?.organization_id || '',
   });
   if (!quota.ok) return Response.json({ error: quota.message }, { status: 429 });
+
+  // One research report = one unit of the agent's allowance (Hazel: 60 a month).
+  // Research run outside an agent counts against the workspace's research plan.
+  const { organization: researchOrg } = await ensureOrganization({ base44, user });
+  const researchPlan = agent ? planOf(agent) : 'hazel';
+  const lease = await reserveUsage(serviceClient(), {
+    organizationId: agent?.organization_id || researchOrg?.id, subject: agent?.id || featuredSubject('hazel'),
+    plan: researchPlan, planRow: await planRow(serviceClient(), researchPlan),
+  });
+  if (!lease.ok) return Response.json({ error: lease.message, billing: lease.info || null }, { status: lease.status || 429 });
 
   const startedAt = Date.now();
 
@@ -195,6 +208,7 @@ export default async function (req) {
     return Response.json({ report });
   } catch (error) {
     console.error('productResearch failed', error);
+    await lease.release();
     const message =
       error?.status === 429
         ? 'The research service is rate limited right now. Try again in a moment.'

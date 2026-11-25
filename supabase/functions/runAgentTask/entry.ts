@@ -1,4 +1,5 @@
-import { createClientFromRequest } from '../_shared/base44shim.ts';
+import { createClientFromRequest, service as serviceClient } from '../_shared/base44shim.ts';
+import { reserve as reserveUsage, planOf, planRow } from '../_shared/agentBilling.ts';
 import { buildWorkflowGraph, validateWorkflowGraph, initialSteps } from '../_shared/workflowGraph.ts';
 import { executeWorkflow, MODEL_LABEL } from '../_shared/workflowRunner.ts';
 import {
@@ -95,6 +96,14 @@ export default async function (req) {
   const gate = await checkTaskGate({ base44, organization });
   if (!gate.ok) return Response.json({ error: gate.message }, { status: 429 });
 
+  // Per-agent allowance: one unit per run, reserved before any model call and given
+  // back if the run fails. Refused runs cost nothing and create no task record.
+  const lease = await reserveUsage(serviceClient(), {
+    organizationId: organization.id, subject: agent.id, plan: planOf(agent),
+    planRow: await planRow(serviceClient(), planOf(agent)),
+  });
+  if (!lease.ok) return Response.json({ error: lease.message, billing: lease.info || null }, { status: lease.status || 429 });
+
   if (!agent.organization_id) {
     await base44.entities.Agent
       .update(agent.id, { organization_id: organization.id })
@@ -180,6 +189,7 @@ export default async function (req) {
     });
 
     if (result.status === 'failed') {
+      await lease.release();
       await logAudit(base44, {
         organization_id: organization.id,
         user,
@@ -203,6 +213,7 @@ export default async function (req) {
     return Response.json({ task: saved, result });
   } catch (error) {
     console.error('runAgentTask failed', error);
+    await lease.release();
     const message =
       error?.status === 429
         ? 'The AI service is rate limited right now. Try again in a moment.'

@@ -1,4 +1,5 @@
-import { createClientFromRequest } from '../_shared/base44shim.ts';
+import { createClientFromRequest, service as serviceClient } from '../_shared/base44shim.ts';
+import { stripeClient, syncSubscription, HIRE_KIND } from '../_shared/agentHires.ts';
 import { secrets } from '../_shared/runtime.ts';
 import { tierForPrice } from '../_shared/stripeCatalog.ts';
 import { planLimits, logAudit } from '../_shared/tenancy.ts';
@@ -49,8 +50,33 @@ async function stripeGet(path, secretKey) {
   return json;
 }
 
+// Returns a result line for agent-hire events, or null for everything else (which the
+// existing workspace-plan handling below processes unchanged).
+async function agentHireEvent(event, secretKey, db) {
+  const obj = event?.data?.object || {};
+  let subscriptionId = null;
+  if (event.type === 'checkout.session.completed' || event.type === 'checkout.session.async_payment_succeeded') {
+    if (obj.metadata?.kind !== HIRE_KIND) return null;
+    if (obj.payment_status !== 'paid') return 'agent hire: not paid yet';
+    subscriptionId = typeof obj.subscription === 'string' ? obj.subscription : obj.subscription?.id;
+  } else if (event.type?.startsWith('customer.subscription.')) {
+    if (obj.metadata?.kind !== HIRE_KIND) return null;
+    subscriptionId = obj.id;
+  } else if (event.type === 'invoice.paid' || event.type === 'invoice.payment_failed') {
+    const meta = obj.parent?.subscription_details?.metadata || obj.subscription_details?.metadata || {};
+    if (meta.kind !== HIRE_KIND) return null;
+    subscriptionId = obj.parent?.subscription_details?.subscription || obj.subscription;
+  } else {
+    return null;
+  }
+  if (!subscriptionId) return 'agent hire: no subscription';
+  const result = await syncSubscription(db, stripeClient(secretKey), String(subscriptionId));
+  return `agent hire: ${result}`;
+}
+
 export default async function (req) {
   const base44 = createClientFromRequest(req);
+  let recordedEventId = null;
 
   try {
     const rawBody = await req.text();
@@ -67,6 +93,27 @@ export default async function (req) {
 
     const event = JSON.parse(rawBody);
     const service = base44.asServiceRole;
+
+    // Each Stripe event is applied once (Stripe may deliver the same event again).
+    const db = serviceClient();
+    if (event?.id) {
+      const { error: seen } = await db.from('stripe_events').insert({ id: String(event.id), type: String(event.type || '') });
+      if (seen?.code === '23505') return Response.json({ received: true, result: 'duplicate' });
+      if (!seen) recordedEventId = String(event.id);
+    }
+
+    // Individual agent hires (one subscription per workspace, one line per agent).
+    try {
+      const hireResult = await agentHireEvent(event, secretKey, db);
+      if (hireResult) {
+        await db.from('stripe_events').update({ result: hireResult.slice(0, 500) }).eq('id', String(event.id));
+        return Response.json({ received: true, result: hireResult });
+      }
+    } catch (error) {
+      // Forget the event so Stripe's retry is processed again.
+      if (event?.id) await db.from('stripe_events').delete().eq('id', String(event.id));
+      throw error;
+    }
 
     const applyPlan = async (organizationId, plan, extra = {}) => {
       const limits = planLimits(plan);
@@ -157,6 +204,7 @@ export default async function (req) {
 
     return Response.json({ received: true, result });
   } catch (error) {
+    if (recordedEventId) await serviceClient().from('stripe_events').delete().eq('id', recordedEventId).then(() => null, () => null);
     console.error('stripeWebhook failed', error?.message);
     return Response.json({ error: 'Webhook could not be processed.' }, { status: 500 });
   }

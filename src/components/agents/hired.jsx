@@ -1,13 +1,12 @@
 import { useEffect, useState } from 'react';
 import { BadgeCheck } from 'lucide-react';
-import { supabase } from '@/api/base44Client';
+import { base44 } from '@/api/base44Client';
 
-// "Hired" status for every agent, existing and future.
+// Individual agent hiring, as the server reports it (agentBilling overview).
 //
-// It is never stored per agent and never decided in the browser: a workspace is hired
-// only while its payment is confirmed on the server (the signature-verified Stripe
-// webhook records an active, paid subscription), exposed as the read-only database
-// column organizations.hired. Every agent in a hired workspace shows the status.
+// An agent is "Hired" only while it has its own hire record, which the server writes
+// after Stripe confirms payment for that one agent. Nothing here decides it in the
+// browser. Featured agents (Recruitment, Cyber Security Scan) are hired per workspace.
 
 // Subtle red glow around a hired agent's card or icon.
 export const HIRED_GLOW = 'ring-1 ring-red-500/35 shadow-[0_0_28px_-6px_rgba(239,68,68,0.55)]';
@@ -25,39 +24,100 @@ export function HiredBadge({ className = '' }) {
 }
 
 let cache = { at: 0, promise: null };
+const listeners = new Set();
 
-function loadHired() {
-  if (cache.promise && Date.now() - cache.at < 30000) return cache.promise;
+function load(force = false) {
+  if (!force && cache.promise && Date.now() - cache.at < 30000) return cache.promise;
   cache = {
     at: Date.now(),
-    // Members can read only their own workspaces (RLS); `hired` is computed by the database.
-    promise: supabase
-      .from('organizations')
-      .select('id, hired')
-      .then(({ data, error }) => (error ? [] : (data || []).filter((o) => o.hired).map((o) => o.id)))
-      .catch(() => []),
+    promise: base44.functions
+      .invoke('agentBilling', { action: 'overview' })
+      .then((r) => r?.data || null)
+      .catch(() => null),
   };
+  cache.promise.then((data) => listeners.forEach((fn) => fn(data)));
   return cache.promise;
 }
 
-// Returns helpers for the signed-in user's workspaces.
-export function useHiredWorkspaces() {
-  const [ids, setIds] = useState(() => new Set());
+export const refreshBilling = () => load(true);
+
+export const planKeyOf = (agent) => agent?.catalog_key || 'custom';
+export const featuredSubject = (key) => `featured:${key}`;
+
+// Billing state for the signed-in user's workspace, with helpers per agent.
+export function useAgentBilling() {
+  const [data, setData] = useState(cache.promise ? undefined : null);
   useEffect(() => {
     let alive = true;
-    loadHired().then((list) => alive && setIds(new Set(list)));
-    const refresh = () => {
-      cache.at = 0;
-      loadHired().then((list) => alive && setIds(new Set(list)));
-    };
-    window.addEventListener('focus', refresh);
+    const set = (d) => alive && setData(d);
+    listeners.add(set);
+    load().then(set);
+    const onFocus = () => load(true);
+    window.addEventListener('focus', onFocus);
     return () => {
       alive = false;
-      window.removeEventListener('focus', refresh);
+      listeners.delete(set);
+      window.removeEventListener('focus', onFocus);
     };
   }, []);
+
+  const plans = new Map((data?.plans || []).map((p) => [p.key, p]));
+  const hireOf = (subject) => (data?.hires || []).find((h) => h.subject === subject) || null;
+  const usageOf = (subject, kind) => (data?.usage || []).filter((u) => u.subject === subject && (!kind || u.kind === kind))
+    .sort((a, b) => Date.parse(b.period_start) - Date.parse(a.period_start))[0] || null;
+
+  const stateFor = (subject, planKey) => {
+    const plan = plans.get(planKey) || null;
+    const hire = hireOf(subject);
+    const meter = plan ? Object.keys(plan.meters || {})[0] : 'unit';
+    const usage = usageOf(subject, hire ? 'hire' : 'trial');
+    const used = Number(usage?.used?.[meter] || 0);
+    const allowance = hire ? Number(plan?.meters?.[meter] || 0) : Number(plan?.trial?.[meter] || 0);
+    return { plan, hire, hired: Boolean(hire), meter, used, allowance, left: Math.max(0, allowance - used), unitLabel: plan?.unit_label || 'tasks' };
+  };
+
   return {
-    isHired: (agent) => Boolean(agent?.organization_id && ids.has(agent.organization_id)),
-    anyHired: ids.size > 0,
+    ready: data !== undefined,
+    data,
+    exempt: Boolean(data?.exempt),
+    canManage: Boolean(data?.can_manage),
+    paymentsReady: Boolean(data?.payments_ready),
+    forAgent: (agent) => stateFor(agent?.id, planKeyOf(agent)),
+    forFeatured: (key) => stateFor(featuredSubject(key), key),
+    isHired: (agent) => Boolean(agent && hireOf(agent.id)),
+    isFeaturedHired: (key) => Boolean(hireOf(featuredSubject(key))),
   };
 }
+
+// Kept for existing callers.
+export function useHiredWorkspaces() {
+  const b = useAgentBilling();
+  return { isHired: b.isHired, anyHired: false, isFeaturedHired: b.isFeaturedHired };
+}
+
+// Starts hiring: Stripe Checkout for the first agent, or a confirmed line on the
+// existing subscription. Returns a short message for the page.
+export async function hireAgent({ agentId, featured, name }) {
+  const body = agentId ? { action: 'hire', agent_id: agentId } : { action: 'hire', featured };
+  let r = (await base44.functions.invoke('agentBilling', body))?.data || {};
+  if (r.needs_confirmation) {
+    const price = `$${(r.plan.price_cents / 100).toFixed(0)}`;
+    const ok = window.confirm(`Hire ${r.agent || name} for ${price}/month?\n\nIt is added to your existing subscription and your card on file is charged now for the rest of this billing period.`);
+    if (!ok) return 'Not hired.';
+    r = (await base44.functions.invoke('agentBilling', { ...body, confirm: true, confirm_price_cents: r.plan.price_cents }))?.data || {};
+  }
+  if (r.url) {
+    window.location.assign(r.url);
+    return 'Opening secure checkout…';
+  }
+  await refreshBilling();
+  return r.hired ? `${name} is hired.` : `Payment received; ${name} activates as soon as Stripe confirms it.`;
+}
+
+export async function cancelHire({ agentId, featured }) {
+  const r = (await base44.functions.invoke('agentBilling', agentId ? { action: 'cancel', agent_id: agentId } : { action: 'cancel', featured }))?.data || {};
+  await refreshBilling();
+  return r.usable_until ? `Cancelled. It stays available until ${String(r.usable_until).slice(0, 10)}.` : 'Cancelled.';
+}
+
+export const errorMessage = (e) => e?.response?.data?.error || e?.data?.error || e?.message || 'Something went wrong.';

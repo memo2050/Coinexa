@@ -1,5 +1,7 @@
 import { createClientFromRequest } from '../_shared/base44shim.ts';
 import { ensureOrganization } from '../_shared/tenancy.ts';
+import { service as serviceClient } from '../_shared/base44shim.ts';
+import { reserve as reserveUsage, planOf, planRow } from '../_shared/agentBilling.ts';
 import { consumeModelQuota } from '../_shared/rateLimits.ts';
 
 const clean = (value) => (typeof value === 'string' ? value.trim() : '');
@@ -56,6 +58,13 @@ export default async function (req) {
     });
     if (!quota.ok) return Response.json({ error: quota.message }, { status: 429 });
 
+    // Each reply uses one unit of this agent's allowance (given back if it fails).
+    const lease = await reserveUsage(serviceClient(), {
+      organizationId: organization?.id, subject: agent.id, plan: planOf(agent),
+      planRow: await planRow(serviceClient(), planOf(agent)),
+    });
+    if (!lease.ok) return Response.json({ error: lease.message, billing: lease.info || null }, { status: lease.status || 429 });
+
     const name = agent.name || 'the agent';
     const transcript = history
       .map((entry) => `${entry.role === 'assistant' ? name : 'Customer'}: ${entry.content}`)
@@ -80,7 +89,13 @@ ${transcript ? `CONVERSATION SO FAR\n${transcript}\n` : ''}
 Owner: ${message}
 ${name}:`;
 
-    const reply = await base44.asServiceRole.integrations.Core.InvokeLLM({ prompt });
+    let reply;
+    try {
+      reply = await base44.asServiceRole.integrations.Core.InvokeLLM({ prompt });
+    } catch (error) {
+      await lease.release();
+      throw error;
+    }
 
     return Response.json({ reply: typeof reply === 'string' ? reply.trim() : '' });
   } catch (error) {
