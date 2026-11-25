@@ -53,6 +53,11 @@ New AI Recruitment & Talent Sourcing Agent — see `docs/stage-2/RECRUITMENT-AGE
 Phase 1 (25 Nov): text-only written AI interviews in the candidate portal, PDF CV import read by the AI,
 per-candidate reports emailed to the hiring manager; LinkedIn removed. E2E 77/0, browser 70/0.
 
+## Cyber Security Scan Agent (25 Nov)
+
+Phase 1 done on staging (linked PCs, signed uploads, server-only encrypted storage, pages) — see
+`docs/stage-2/SECURITY-SCAN-AGENT.md`. E2E 93/0, browser 74/0. Phase 2 (Windows scanner) waits for approval.
+
 ## Remaining owner steps (need your accounts)
 
 1. ~~Hostinger FTP~~ done 24 Nov (host and user in `deploy/staging.env`, password as a GitHub secret).
