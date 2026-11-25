@@ -16,7 +16,7 @@ export default function Terms() {
   return (
     <LegalPage
       title="Terms of Service"
-      updated="16 November 2026"
+      updated="25 November 2026"
       intro="These terms govern your use of Coinexa.net and the agent platform available through it. By using the service you agree to them. Provisions that need legal confirmation are marked rather than assumed."
     >
       <Clause heading="The service">
@@ -25,6 +25,11 @@ export default function Terms() {
           agent on real tasks, review step-by-step execution, and approve or reject steps that are
           marked as requiring human sign-off. Product research features gather public information
           and calculate profit and scoring estimates from the assumptions you supply.
+        </p>
+        <p>
+          Unless an agent's page says it is connected to an outside system, an agent works as a
+          drafting assistant: it prepares text, plans and documents for you to review and use. It
+          does not send, book, file or change anything in other systems on your behalf.
         </p>
       </Clause>
 
@@ -49,6 +54,29 @@ export default function Terms() {
         </ul>
       </Clause>
 
+      <Clause heading="Network scanner: authorized use only">
+        <p>
+          The Cyber Security Scan Agent's Windows scanner may only be used on private networks that
+          you own or that you have explicit permission to test. It asks you to confirm this before
+          every scan and refuses public internet addresses. You are responsible for having that
+          permission; scanning a network without it may be unlawful.
+        </p>
+      </Clause>
+
+      <Clause heading="Recruitment data">
+        <p>
+          If you use the Recruitment Agent, you decide which candidates are added and why, and you
+          are responsible for having a lawful basis for their data, for honouring candidates'
+          requests, and for the hiring decisions you make. Evaluation scores and reports are
+          suggestions to support a person's decision, not automated hiring decisions.
+        </p>
+        <LegalReviewNote>
+          a data processing agreement between Coinexa and hiring workspaces, and any rules on
+          automated decision-making or AI in hiring that apply in the countries where you recruit,
+          must be confirmed.
+        </LegalReviewNote>
+      </Clause>
+
       <Clause heading="AI output is not guaranteed">
         <p>
           Agents generate output using statistical models. Output can be incomplete, out of date or
@@ -70,12 +98,18 @@ export default function Terms() {
 
       <Clause heading="Fees and billing">
         <p>
-          Paid plans are billed as a recurring subscription through Stripe, and plan limits apply to
-          the workspace that holds the subscription. Payments are currently processed in test mode:
-          no live charge is taken and no live subscription is created.
+          Each agent is hired individually for a monthly price shown on its card, billed through
+          Stripe as part of one subscription per workspace. Hiring a further agent mid-period is
+          charged pro rata after you confirm the amount. Each agent includes a monthly allowance
+          (for example tasks, scans or documents); when it is used up the agent pauses until the
+          next billing period, and you are not charged extra automatically. Some agents offer a
+          small free trial before hiring. If you cancel an agent, it stays available until the end
+          of the period already paid. If a payment fails, the agent stays available for a short
+          grace period while you update your payment method. Payments are currently processed in
+          test mode: no live charge is taken and no live subscription is created.
         </p>
         <LegalReviewNote>
-          the refund and cancellation policy, the treatment of unused plan allowance, tax handling
+          the refund policy, whether unused allowance carries over (currently it does not), tax handling
           and the notice period for price changes must be set before live payments are enabled.
         </LegalReviewNote>
       </Clause>

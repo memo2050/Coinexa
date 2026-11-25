@@ -16,7 +16,7 @@ export default function Privacy() {
   return (
     <LegalPage
       title="Privacy Policy"
-      updated="16 November 2026"
+      updated="25 November 2026"
       intro="This policy explains what Coinexa.net collects, why, and the choices you have. It describes the service as it operates today; anything that needs legal confirmation is marked as such rather than assumed."
     >
       <Clause heading="Who we are">
@@ -41,8 +41,25 @@ export default function Privacy() {
         <p>
           <span className="text-slate-200">Accounts and workspaces.</span> When you create an
           account we store your email address, your display name, your account role and your
-          workspace memberships. Authentication is handled by the platform provider; we do not
-          store your password in readable form.
+          workspace memberships. Authentication is handled by our hosting provider; we do not
+          store your password in readable form. If you turn on two-step sign-in, we store the
+          authenticator factor needed to check your codes, never the codes themselves.
+        </p>
+        <p>
+          <span className="text-slate-200">Candidates (Recruitment Agent).</span> Workspaces that
+          use the Recruitment Agent store candidate data on their behalf: name, contact details,
+          location, skills and experience, CVs they upload or receive, written interview answers,
+          evaluation scores and reports, and the consent choices each candidate made (with the
+          wording version and time). For this data the hiring workspace decides what is collected
+          and why; we process it for them. Candidates who apply through a public job page give
+          their consent on that page and can see and withdraw it through their personal link.
+        </p>
+        <p>
+          <span className="text-slate-200">Network scans (Cyber Security Scan Agent).</span> When
+          you run the Windows scanner, it records the devices it finds on your private network
+          (local addresses, hardware vendor, open ports and services, and the scan time) and
+          uploads that result to your workspace. It does not scan public internet addresses and
+          does not collect file contents, browsing history or passwords.
         </p>
         <p>
           <span className="text-slate-200">Agent content.</span> When you build or run an agent we
@@ -53,22 +70,24 @@ export default function Privacy() {
         </p>
         <p>
           <span className="text-slate-200">Operational records.</span> We keep metered usage
-          records (number of model calls, duration), and an audit log of workspace actions such as
-          invitations, runs and approvals.
+          records for each agent (tasks, scans, replies or documents used in the billing period,
+          and the AI cost of that use) so that plan allowances and cost limits can be applied, and
+          an audit log of workspace actions such as invitations, runs, hires and approvals.
         </p>
         <p>
-          <span className="text-slate-200">Payments.</span> Paid plans are processed by Stripe. Card
-          details are entered on Stripe's checkout and are never received or stored by us. We
-          receive subscription status and payment identifiers. Payments are currently in test mode;
-          no live charge is taken.
+          <span className="text-slate-200">Payments.</span> Agents are hired individually and billed
+          through Stripe. Card details are entered on Stripe's checkout and are never received or
+          stored by us. We receive the subscription, the agents it covers, their billing periods and
+          payment status. Payments are currently in test mode; no live charge is taken.
         </p>
       </Clause>
 
       <Clause heading="How AI processing works">
         <p>
           To execute an agent task, the instruction you submit, the relevant agent configuration
-          and the contents of files you attach are sent to third-party large language model
-          providers through our AI integration layer, so that a response can be generated. The
+          and the contents of files you attach (for the Recruitment Agent, the candidate profiles,
+          CVs and interview answers being evaluated) are sent to our AI model provider, Anthropic,
+          so that a response can be generated. The
           result, along with a record of each step, is returned and stored in your workspace.
         </p>
         <p>
@@ -77,7 +96,7 @@ export default function Privacy() {
           information from public web pages, and the pages consulted are listed in the report.
         </p>
         <LegalReviewNote>
-          the named model providers, their processing locations, the applicable data-processing
+          the model provider's processing locations, the applicable data-processing
           terms and any international transfer safeguards must be confirmed before this section can
           be treated as a complete disclosure.
         </LegalReviewNote>
@@ -85,10 +104,12 @@ export default function Privacy() {
 
       <Clause heading="Third-party services">
         <p>
-          We rely on the following providers to run the service: Base44 (application hosting,
-          database, authentication and the AI integration layer), Stripe (subscription payments),
-          Google Fonts (typeface delivery), and — only if you choose them — Google, Microsoft,
-          Facebook or Apple as a sign-in method.
+          We rely on the following providers to run the service: Supabase (database,
+          authentication, file storage and server functions), Hostinger (website hosting),
+          Anthropic (AI model processing), Stripe (payments), Resend (account and recruitment
+          emails), Cloudflare Turnstile (a security check on sign-up, sign-in and job applications
+          that tells people from automated abuse), Google Fonts (typeface delivery), and — only if
+          you choose it — Google as a sign-in method.
         </p>
       </Clause>
 
@@ -96,7 +117,8 @@ export default function Privacy() {
         <p>
           This site sets no advertising cookies and no cross-site tracking pixels. The only
           browser storage we use is what is required to sign you in and keep your session valid,
-          plus your own interface preferences. You can clear it at any time from your browser.
+          plus your own interface preferences. On forms protected by Cloudflare Turnstile,
+          Cloudflare processes technical signals from your browser to run the security check. You can clear it at any time from your browser.
         </p>
       </Clause>
 
@@ -130,8 +152,10 @@ export default function Privacy() {
         <p>
           Access to workspace records is enforced on the server through membership rules, not in
           the browser. Credentials for third-party services are held server-side and are never sent
-          to the browser. Uploaded files are stored privately. No system is perfectly secure, so
-          please use a unique password and limit who can administer your workspace.
+          to the browser. Uploaded files are stored privately. Two-step sign-in with an
+          authenticator app is available to every account and required for platform
+          administrators. No system is perfectly secure, so please use a unique password, turn on
+          two-step sign-in and limit who can administer your workspace.
         </p>
       </Clause>
 

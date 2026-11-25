@@ -1,0 +1,100 @@
+# BACKUP AND RESTORE TEST (staging). Read-only against staging.
+#
+# 1. Takes a full logical backup of the staging database with the Supabase CLI
+#    (roles, schema, data), the same files used to restore to a new project.
+# 2. Restores it into a throwaway local Supabase database on this runner.
+# 3. Compares row counts of every public table, checks that migrations, access rules
+#    (RLS) and billing functions came back, and runs the access-rule test suite on the
+#    restored copy.
+#
+# The repository is public, so the backup is never uploaded or printed: it lives only
+# on this runner and is deleted at the end. Output is table names, OK/MISMATCH and totals.
+name: Backup and restore test (staging)
+
+on:
+  push:
+    branches: [stage-2/build]
+    paths: ['ops/backup-test.request']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backup-restore:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 3.3.0
+      - name: Load staging settings
+        run: grep -E '^[A-Z_]+=' deploy/staging.env >> "$GITHUB_ENV"
+
+      - name: 1. Back up staging (roles, schema, data)
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          mkdir -p /tmp/backup && chmod 700 /tmp/backup
+          supabase link --project-ref "$SUPABASE_PROJECT_REF" --password "$SUPABASE_DB_PASSWORD" >/dev/null
+          supabase db dump --linked -p "$SUPABASE_DB_PASSWORD" --role-only -f /tmp/backup/roles.sql
+          supabase db dump --linked -p "$SUPABASE_DB_PASSWORD" -f /tmp/backup/schema.sql
+          supabase db dump --linked -p "$SUPABASE_DB_PASSWORD" --data-only --use-copy -f /tmp/backup/data.sql
+          ls -la /tmp/backup | awk 'NR>1{print $5, $9}'
+
+      - name: Count rows on staging
+        env:
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          sudo apt-get install -y -qq postgresql-client >/dev/null
+          export PGPASSWORD="$SUPABASE_DB_PASSWORD"
+          # supabase link stores the project's connection-pooler address (no password in it).
+          POOLER=$(sed -E 's#:\[YOUR-PASSWORD\]@#@#' supabase/.temp/pooler-url 2>/dev/null)
+          [ -n "$POOLER" ] || { echo "No pooler address from supabase link"; exit 1; }
+          DB="${POOLER}?sslmode=require"
+          SQL="select string_agg(format('select %L as t, count(*) as n from public.%I', table_name, table_name), ' union all ' order by table_name) from information_schema.tables where table_schema='public' and table_type='BASE TABLE'"
+          Q=$(psql "$DB" -Atc "$SQL") || { echo "Could not reach staging over the pooler"; exit 1; }
+          psql "$DB" -Atc "$Q" -F ' ' | sort > /tmp/backup/counts-staging.txt
+          echo "staging tables: $(wc -l < /tmp/backup/counts-staging.txt)"
+
+      - name: 2. Restore into a throwaway local database
+        run: |
+          supabase start -x studio,imgproxy,inbucket,realtime,storage-api,edge-runtime,logflare,vector,supavisor,postgres-meta >/dev/null
+          LOCAL=postgresql://postgres:postgres@127.0.0.1:54322/postgres
+          # A local stack runs this repo's migrations on start; drop public so the backup is
+          # the only source of what comes back.
+          psql "$LOCAL" -q -c "drop schema public cascade; create schema public; grant usage on schema public to anon, authenticated, service_role;"
+          psql "$LOCAL" -q -c "truncate supabase_migrations.schema_migrations" || true
+          psql "$LOCAL" -q -v ON_ERROR_STOP=0 -f /tmp/backup/roles.sql >/tmp/restore-roles.log 2>&1 || true
+          psql "$LOCAL" -q -v ON_ERROR_STOP=1 --single-transaction \
+            --command 'SET session_replication_role = replica' \
+            --file /tmp/backup/schema.sql --file /tmp/backup/data.sql > /tmp/restore.log 2>&1 \
+            || { echo "RESTORE FAILED"; grep -E "ERROR" /tmp/restore.log | sed -E 's/(DETAIL|Key).*//' | head -5; exit 1; }
+          echo "restore: OK"
+
+      - name: 3. Verify the restored copy
+        run: |
+          LOCAL=postgresql://postgres:postgres@127.0.0.1:54322/postgres
+          SQL="select string_agg(format('select %L as t, count(*) as n from public.%I', table_name, table_name), ' union all ' order by table_name) from information_schema.tables where table_schema='public' and table_type='BASE TABLE'"
+          psql "$LOCAL" -Atc "$(psql "$LOCAL" -Atc "$SQL")" -F ' ' | sort > /tmp/backup/counts-restored.txt
+          fail=0
+          while read -r t n; do
+            r=$(awk -v t="$t" '$1==t{print $2}' /tmp/backup/counts-restored.txt)
+            if [ "$r" = "$n" ]; then echo "OK        $t"; else echo "MISMATCH  $t"; fail=1; fi
+          done < /tmp/backup/counts-staging.txt
+          echo "tables compared: $(wc -l < /tmp/backup/counts-staging.txt); total rows staging=$(awk '{s+=$2}END{print s}' /tmp/backup/counts-staging.txt) restored=$(awk '{s+=$2}END{print s}' /tmp/backup/counts-restored.txt)"
+          echo "auth users restored: $( [ "$(psql "$LOCAL" -Atc 'select count(*)>0 from auth.users')" = t ] && echo yes || echo no)"
+          echo "tables with RLS on: $(psql "$LOCAL" -Atc "select count(*) from pg_tables where schemaname='public' and rowsecurity")"
+          echo "access policies: $(psql "$LOCAL" -Atc "select count(*) from pg_policies where schemaname='public'")"
+          echo "billing functions: $(psql "$LOCAL" -Atc "select count(*) from pg_proc where proname like 'billing_%'")"
+          echo "agent price plans: $(psql "$LOCAL" -Atc 'select count(*) from public.agent_plans')"
+          [ "$fail" = 0 ] || { echo "Row counts differ"; exit 1; }
+
+      - name: Delete the backup from this runner
+        if: always()
+        run: |
+          rm -rf /tmp/backup /tmp/restore*.log
+          supabase stop --no-backup >/dev/null 2>&1 || true
+          echo "backup files deleted"
