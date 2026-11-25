@@ -51,19 +51,19 @@ export default function Nav() {
           />
         </a>
 
-        <nav className="hidden items-center gap-0.5 md:flex">
+        <nav className="hidden items-center gap-0.5 lg:flex">
           {navLinks.map((link) => (
             <Link
               key={link.to}
               to={link.to}
-              className="whitespace-nowrap rounded-full px-3 py-2 text-sm text-slate-300 transition-colors hover:bg-white/[0.06] hover:text-white lg:px-4"
+              className="whitespace-nowrap rounded-full px-3 py-2 text-sm text-slate-300 transition-colors hover:bg-white/[0.06] hover:text-white xl:px-4"
             >
               {link.label}
             </Link>
           ))}
         </nav>
 
-        <div className="hidden items-center gap-1.5 md:flex">
+        <div className="hidden items-center gap-1.5 lg:flex">
           {signedIn ? (
             <>
               {isAdmin && (
@@ -71,15 +71,17 @@ export default function Nav() {
                   to="/admin"
                   className="whitespace-nowrap rounded-full px-3 py-2.5 text-sm font-semibold text-slate-300 transition-colors hover:text-white"
                 >
-                  Admin Console
+                  <span className="hidden xl:inline">Admin Console</span>
+                  <span className="xl:hidden">Admin</span>
                 </Link>
               )}
               <Link
                 to="/account/security"
+                aria-label="Security"
                 className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-2.5 text-sm font-semibold text-slate-300 transition-colors hover:text-white"
               >
                 <ShieldCheck className="h-4 w-4" />
-                Security
+                <span className="hidden xl:inline">Security</span>
               </Link>
               <button
                 type="button"
@@ -88,7 +90,8 @@ export default function Nav() {
                 className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-white/10 bg-white/[0.04] px-4 py-2.5 text-sm font-semibold text-slate-200 transition-colors hover:border-sky-400/40 hover:text-white disabled:opacity-60"
               >
                 <LogOut className="h-4 w-4" />
-                Sign Out
+                <span className="hidden xl:inline">Sign Out</span>
+                <span className="sr-only xl:hidden">Sign Out</span>
               </button>
             </>
           ) : (
@@ -109,9 +112,10 @@ export default function Nav() {
           )}
           <Link
             to="/agents/new"
-            className="group inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-blue-600 via-sky-500 to-cyan-400 px-5 py-2.5 text-sm font-semibold text-white shadow-[0_10px_30px_-14px_rgba(34,211,238,0.9)] transition-transform duration-300 hover:-translate-y-0.5"
+            className="group inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bg-gradient-to-r from-blue-600 via-sky-500 to-cyan-400 px-5 py-2.5 text-sm font-semibold text-white shadow-[0_10px_30px_-14px_rgba(34,211,238,0.9)] transition-transform duration-300 hover:-translate-y-0.5"
           >
-            Build a new AI Agent
+            <span className="hidden xl:inline">Build a new AI Agent</span>
+            <span className="xl:hidden">New agent</span>
             <ArrowUpRight className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
           </Link>
         </div>
@@ -119,7 +123,7 @@ export default function Nav() {
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
-          className="grid h-10 w-10 place-items-center rounded-xl border border-white/10 bg-white/[0.04] text-white md:hidden"
+          className="grid h-10 w-10 place-items-center rounded-xl border border-white/10 bg-white/[0.04] text-white lg:hidden"
           aria-label={open ? 'Close menu' : 'Open menu'}
           aria-expanded={open}
         >
@@ -128,7 +132,7 @@ export default function Nav() {
       </div>
 
       <div
-        className={`overflow-hidden border-t border-white/[0.06] bg-[#05070a]/95 backdrop-blur-xl transition-[max-height,opacity] duration-400 md:hidden ${
+        className={`overflow-hidden border-t border-white/[0.06] bg-[#05070a]/95 backdrop-blur-xl transition-[max-height,opacity] duration-400 lg:hidden ${
           open ? 'max-h-[34rem] opacity-100' : 'max-h-0 opacity-0'
         }`}
       >
