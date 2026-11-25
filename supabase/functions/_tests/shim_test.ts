@@ -124,6 +124,16 @@ Deno.test('bulkUpdate updates each row by id', async () => {
   assertEquals(updates.length, 2);
 });
 
+Deno.test('workflow graph: an approval step inside the workflow keeps the deliverable reachable', async () => {
+  const { buildWorkflowGraph, validateWorkflowGraph } = await import('../_shared/workflowGraph.ts');
+  const graph = buildWorkflowGraph({
+    name: 'Cita', specialization: 'E-commerce Manager Agent', industry: 'E-commerce & Retail', tools: ['Gmail', 'Notion'],
+    permissions: ['Send emails on my behalf', 'Take payments or refunds'],
+    workflow: ['Read the message.', 'Send a request to the user to confirm the booking or payment action.', 'Execute the action once approval is granted.'],
+  });
+  assertEquals(validateWorkflowGraph(graph).errors, []);
+});
+
 // ---------------- AI adapter ----------------
 
 function fakeService(spent: number) {

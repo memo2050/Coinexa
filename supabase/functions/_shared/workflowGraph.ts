@@ -352,8 +352,11 @@ export function buildWorkflowGraph(input = {}) {
   });
 
   const decision = nodes.find((node) => node.kind === 'decision');
-  const approval = nodes.find((node) => node.kind === 'approval');
-  const output = nodes.find((node) => node.kind === 'output');
+  // Fix (staging testing): an agent's own steps can classify as 'approval'. The decision must lead to the
+  // checkpoint pushed AFTER it, or the deliverable and completion become unreachable and validation fails.
+  const afterDecision = decision ? nodes.slice(nodes.indexOf(decision) + 1) : nodes;
+  const approval = afterDecision.find((node) => node.kind === 'approval');
+  const output = afterDecision.find((node) => node.kind === 'output');
 
   const edges = [];
   const mainline = nodes.filter((node) => node.kind !== 'error_handling');

@@ -1,0 +1,51 @@
+name: Seed agent catalogue (staging)
+
+# Adds the agents from coinexa.net (supabase/seed/agents.json) to a workspace on
+# the staging project. Triggered by changing ops/seed-agents.request on stage-2/build:
+#   first line "test"           → seed a throwaway account, verify, delete it (owner untouched)
+#   first line "SEED OWNER"     → seed the owner's workspace (vars.OWNER_EMAIL); safe to re-run
+on:
+  push:
+    branches: [stage-2/build]
+    paths: [ops/seed-agents.request]
+
+concurrency: { group: seed-agents, cancel-in-progress: false }
+
+jobs:
+  seed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      OWNER_EMAIL: ${{ vars.OWNER_EMAIL }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Load staging settings
+        run: grep -E '^[A-Z_]+=' deploy/staging.env >> "$GITHUB_ENV"
+      - name: Mode
+        run: |
+          first=$(head -n1 ops/seed-agents.request | tr -d '\r')
+          case "$first" in
+            test) echo "SEED_TEST=1" >> "$GITHUB_ENV" ;;
+            "SEED OWNER") echo "SEED_TEST=0" >> "$GITHUB_ENV" ;;
+            *) echo "First line must be 'test' or 'SEED OWNER'"; exit 1 ;;
+          esac
+      - uses: denoland/setup-deno@v2
+        with: { deno-version: v2.x }
+      - uses: supabase/setup-cli@v1
+        with: { version: 3.3.0 }
+      - name: Project keys (masked)
+        run: |
+          supabase projects api-keys --remote="$SUPABASE_PROJECT_REF" --reveal -o json > /tmp/keys.json
+          node -e '
+            const k = JSON.parse(require("fs").readFileSync("/tmp/keys.json","utf8"));
+            const pick = (...names) => (k.find((x) => names.includes(x.name)) || k.find((x) => names.includes(x.type)) || {}).api_key;
+            const anon = pick("anon", "publishable"), service = pick("service_role", "secret");
+            if (!anon || !service) { console.error("keys not found"); process.exit(1); }
+            console.log("::add-mask::" + service);
+            require("fs").appendFileSync(process.env.GITHUB_ENV, `SUPABASE_ANON_KEY=${anon}\nSUPABASE_SERVICE_KEY=${service}\n`);
+          '
+          rm -f /tmp/keys.json
+          echo "SUPABASE_URL=https://${SUPABASE_PROJECT_REF}.supabase.co" >> "$GITHUB_ENV"
+      - name: Seed
+        run: deno run --no-lock --node-modules-dir=none -A supabase/seed/seed-agents.ts

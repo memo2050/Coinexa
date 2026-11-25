@@ -28,6 +28,12 @@ const PATCHES = [
     "priceId: Deno.env.get('STRIPE_PRICE_STUDIO_RETAINER') || 'price_1UbQjJCk4hUJftLg47pSERqq',",
     'Same as above.',
   ],
+  [
+    'shared/workflowGraph.ts',
+    "  const approval = nodes.find((node) => node.kind === 'approval');\n  const output = nodes.find((node) => node.kind === 'output');",
+    "  // Fix (staging testing): an agent's own steps can classify as 'approval'. The decision must lead to the\n  // checkpoint pushed AFTER it, or the deliverable and completion become unreachable and validation fails.\n  const afterDecision = decision ? nodes.slice(nodes.indexOf(decision) + 1) : nodes;\n  const approval = afterDecision.find((node) => node.kind === 'approval');\n  const output = afterDecision.find((node) => node.kind === 'output');",
+    'Original bug: agents whose workflow contains a confirmation step got an unreachable deliverable ("The workflow could not be prepared").',
+  ],
 ];
 
 function rewrite(code, fromShared) {
