@@ -1,2 +1,2 @@
-run 2026-11-25T19:35:09Z
-Approved by the owner in chat on 2026-11-24 ("Add the Stripe test key and test individual Agent payments"). Test mode only: adds refund/dispute events to the staging test webhook.
+run 2026-11-25T19:43:05Z
+Approved by the owner in chat on 2026-11-24 ("Add the Stripe test key and test individual Agent payments"). Test mode only: customer portal settings via the shared setup script.
