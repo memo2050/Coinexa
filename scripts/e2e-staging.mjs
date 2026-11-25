@@ -380,7 +380,7 @@ async function hireForTest(orgId, subject, planKey, agentId = null) {
   const now = Date.now();
   const { error } = await admin.from('agent_hires').insert({
     organization_id: orgId, subject, agent_id: agentId, plan_key: planKey, status: 'active',
-    stripe_subscription_id: `sub_e2e_${runId}`, stripe_item_id: `si_e2e_${runId}_${subject.replace(/[^a-z0-9]/gi, '')}`,
+    stripe_subscription_id: `sub_e2e_${runId}`, stripe_item_id: `si_e2e_${runId}_${orgId.slice(0, 8)}_${subject.replace(/[^a-z0-9]/gi, '')}`,
     current_period_start: new Date(now - 86400000).toISOString(), current_period_end: new Date(now + 29 * 86400000).toISOString(),
   });
   if (error) throw new Error(`test hire failed: ${error.message}`);
