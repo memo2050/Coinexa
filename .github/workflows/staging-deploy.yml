@@ -120,6 +120,13 @@ jobs:
         if: ${{ env.SUPABASE_ACCESS_TOKEN != '' && env.SUPABASE_DB_PASSWORD != '' }}
         run: |
           f=$(mktemp)
+          # Recruitment contact-data encryption key: created once, never replaced (replacing it
+          # would make stored contact details unreadable). Lives only in Supabase secrets.
+          NEW_DATA_KEY=""
+          existing=$(supabase secrets list --remote="$SUPABASE_PROJECT_REF" -o json) || { echo "Could not list secrets; leaving the data key alone" >&2; existing='"RECRUITMENT_DATA_KEY"'; }
+          if ! printf '%s' "$existing" | grep -q '"RECRUITMENT_DATA_KEY"'; then
+            NEW_DATA_KEY=$(openssl rand -base64 32); echo "::add-mask::$NEW_DATA_KEY"
+          fi
           {
             echo "APP_ID=coinexa-staging"
             echo "AI_MODEL=claude-sonnet-5-5"
@@ -129,6 +136,7 @@ jobs:
             [ -n "$ANTHROPIC_API_KEY" ] && echo "ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}"
             [ -n "$RESEND_API_KEY" ] && echo "RESEND_API_KEY=${RESEND_API_KEY}"
             [ -n "$STRIPE_SECRET_KEY" ] && echo "STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY}"
+            [ -n "$NEW_DATA_KEY" ] && echo "RECRUITMENT_DATA_KEY=${NEW_DATA_KEY}"
             true
           } > "$f"
           supabase secrets set --remote="$SUPABASE_PROJECT_REF" --yes --env-file "$f"

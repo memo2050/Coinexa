@@ -176,4 +176,34 @@ select pg_temp.act_as('00000000-0000-0000-0000-00000000000b', 'b@test.local');
 select pg_temp.check((select query from public.research_reports where id = 'rep-b') = 'cups', '32 others cannot edit or delete a personal report');
 rollback;
 
+-- Recruitment tables: no direct browser access at all (server function only).
+begin;
+insert into public.recruitment_campaigns (id, organization_id, title, country, initial_offer, max_budget)
+  values ('camp-c', 'org-c', 'Help desk', 'Egypt', 100, 150);
+insert into public.recruitment_candidates (id, organization_id, campaign_id, full_name, source)
+  values ('cand-c', 'org-c', 'camp-c', 'Test Person', 'manual');
+select pg_temp.act_as('00000000-0000-0000-0000-00000000000c', 'c@test.local');
+set local role authenticated;
+do $$ begin
+  begin
+    perform 1 from public.recruitment_candidates limit 1;
+    raise notice 'FAIL: 33 browser can read recruitment candidates';
+  exception when insufficient_privilege then raise notice 'pass: 33 even the owning workspace cannot read candidates directly';
+  end;
+  begin
+    insert into public.recruitment_campaigns (organization_id, title, country, initial_offer, max_budget) values ('org-c', 'x', 'y', 1, 2);
+    raise notice 'FAIL: 34 browser can write campaigns';
+  exception when insufficient_privilege then raise notice 'pass: 34 browser cannot write recruitment tables';
+  end;
+end $$;
+reset role;
+do $$ begin
+  begin
+    insert into public.recruitment_campaigns (organization_id, title, country, initial_offer, max_budget) values ('org-c', 'bad', 'Egypt', 200, 150);
+    raise notice 'FAIL: 35 initial offer above budget accepted';
+  exception when check_violation then raise notice 'pass: 35 initial offer can never exceed the maximum budget';
+  end;
+end $$;
+rollback;
+
 select 'ALL RLS CHECKS PASSED' as result;

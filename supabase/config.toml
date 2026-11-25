@@ -464,6 +464,9 @@ enabled = true
 [functions.adminAiSpend]
 verify_jwt = false
 
+[functions.recruitment]
+verify_jwt = false
+
 [functions.adminActivity]
 verify_jwt = false
 
