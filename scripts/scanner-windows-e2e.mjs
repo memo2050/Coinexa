@@ -9,7 +9,7 @@
 //
 // Env: SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_KEY, SCANNER_EXE
 import { createClient } from '@supabase/supabase-js';
-import { spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { appendFileSync, mkdtempSync, readFileSync, rmSync, existsSync } from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
@@ -39,10 +39,20 @@ const check = async (name, fn) => {
   }
 };
 
-// Runs the .exe. Each run gets the isolated test profile folder (COINEXA_SCANNER_HOME).
+// Runs the .exe without blocking this process, so the test services below keep
+// answering while it scans. Each run uses an isolated profile folder (COINEXA_SCANNER_HOME).
 function exe(args, input = '') {
-  const r = spawnSync(EXE, args, { input, encoding: 'utf8', timeout: 240000, env: { ...process.env, COINEXA_SCANNER_HOME: HOME } });
-  return { code: r.status, out: `${r.stdout || ''}${r.stderr || ''}`, error: r.error };
+  return new Promise((resolve) => {
+    const child = spawn(EXE, args, { env: { ...process.env, COINEXA_SCANNER_HOME: HOME }, windowsHide: true });
+    let out = '';
+    const timer = setTimeout(() => child.kill(), 240000);
+    child.stdout.on('data', (d) => (out += d));
+    child.stderr.on('data', (d) => (out += d));
+    child.on('error', (error) => { clearTimeout(timer); resolve({ code: -1, out, error }); });
+    child.on('close', (code) => { clearTimeout(timer); resolve({ code, out }); });
+    child.stdin.on('error', () => {});
+    child.stdin.end(input);
+  });
 }
 
 async function fn(name, body) {
@@ -100,25 +110,25 @@ async function main() {
     await listen(me.address, 21, (c) => c.end('220 (vsFTPd 3.0.3)\r\n')),
   ];
 
-  await check('the .exe starts and reports its version and staging server', () => {
-    const r = exe(['version']);
+  await check('the .exe starts and reports its version and staging server', async () => {
+    const r = await exe(['version']);
     return r.code === 0 && r.out.includes('staging') && r.out.includes(URL_) ? r.out.trim() : { fail: `${r.code} ${r.out} ${r.error || ''}` };
   });
 
-  await check('scanning before linking is refused', () => {
-    const r = exe(['scan', '--range', `${me.address}/32`, '--confirm-authorized', 'CI Test']);
+  await check('scanning before linking is refused', async () => {
+    const r = await exe(['scan', '--range', `${me.address}/32`, '--confirm-authorized', 'CI Test']);
     return r.code === 3 && r.out.includes('not linked') ? true : { fail: `${r.code} ${r.out}` };
   });
 
-  await check('an invalid linking code is refused', () => {
-    const r = exe(['link', 'ZZZZZ-ZZZZZ', '--name', 'CI-WIN']);
+  await check('an invalid linking code is refused', async () => {
+    const r = await exe(['link', 'ZZZZZ-ZZZZZ', '--name', 'CI-WIN']);
     return r.code === 4 && /invalid|expired/i.test(r.out) ? true : { fail: `${r.code} ${r.out}` };
   });
 
   await check('the .exe links with a real code; the key is protected with Windows DPAPI', async () => {
     const c = await fn('securityScan', { action: 'createPairingCode' });
     if (c.status !== 200) throw new Error(`code ${c.status} ${JSON.stringify(c.data)}`);
-    const r = exe(['link', c.data.code, '--name', `CI-WIN-${runId}`]);
+    const r = await exe(['link', c.data.code, '--name', `CI-WIN-${runId}`]);
     if (r.code !== 0) throw new Error(`${r.code} ${r.out}`);
     const cfg = JSON.parse(readFileSync(path.join(HOME, 'config.json'), 'utf8'));
     const blob = Buffer.from(cfg.protected_private_key, 'base64');
@@ -127,8 +137,8 @@ async function main() {
     return ok ? `device ${cfg.device_id}; protected key blob ${blob.length} bytes (raw key is 32)` : { fail: JSON.stringify({ cfg: { ...cfg, protected_private_key: '…' }, dev }) };
   });
 
-  await check('link check (signed status request) works', () => {
-    const r = exe(['status']);
+  await check('link check (signed status request) works', async () => {
+    const r = await exe(['status']);
     return r.code === 0 && r.out.includes('windows-dpapi') ? r.out.trim() : { fail: `${r.code} ${r.out}` };
   });
 
@@ -136,30 +146,30 @@ async function main() {
 
   await check('public internet range is refused before any connection', async () => {
     const before = await scansBefore();
-    const a = exe(['scan', '--range', '8.8.8.0/24', '--confirm-authorized', 'CI Test']);
-    const b = exe(['scan', '--range', '1.1.1.1', '--confirm-authorized', 'CI Test']);
+    const a = await exe(['scan', '--range', '8.8.8.0/24', '--confirm-authorized', 'CI Test']);
+    const b = await exe(['scan', '--range', '1.1.1.1', '--confirm-authorized', 'CI Test']);
     const ok = a.code === 2 && b.code === 2 && a.out.includes('not a private') && (await scansBefore()) === before && !a.out.includes('Scanning');
     return ok ? 'refused: 8.8.8.0/24, 1.1.1.1' : { fail: `${a.code}/${b.code} ${a.out} ${b.out}` };
   });
 
-  await check('oversized and not-connected private ranges are refused', () => {
-    const big = exe(['scan', '--range', '10.0.0.0/8', '--confirm-authorized', 'CI Test']);
-    const other = exe(['scan', '--range', me.address.startsWith('192.168.') ? '10.123.45.0/24' : '192.168.231.0/24', '--confirm-authorized', 'CI Test']);
+  await check('oversized and not-connected private ranges are refused', async () => {
+    const big = await exe(['scan', '--range', '10.0.0.0/8', '--confirm-authorized', 'CI Test']);
+    const other = await exe(['scan', '--range', me.address.startsWith('192.168.') ? '10.123.45.0/24' : '192.168.231.0/24', '--confirm-authorized', 'CI Test']);
     return big.code === 2 && big.out.includes('too large') && other.code === 2 && other.out.includes('not part of a network')
       ? true : { fail: `${big.code} ${big.out} | ${other.code} ${other.out}` };
   });
 
   await check('a scan without authorisation is cancelled (no name, no YES)', async () => {
     const before = await scansBefore();
-    const none = exe(['scan', '--range', `${me.address}/32`], '\n');
-    const noYes = exe(['scan', '--range', `${me.address}/32`], 'CI Tester\nno\n');
+    const none = await exe(['scan', '--range', `${me.address}/32`], '\n');
+    const noYes = await exe(['scan', '--range', `${me.address}/32`], 'CI Tester\nno\n');
     const ok = none.code === 5 && noYes.code === 5 && !none.out.includes('Scanning') && !noYes.out.includes('Scanning') && (await scansBefore()) === before;
     return ok ? true : { fail: `${none.code}/${noYes.code} ${none.out.slice(-200)} ${noYes.out.slice(-200)}` };
   });
 
   let scanId;
   await check('interactive authorised scan of this machine finds the test services and uploads', async () => {
-    const r = exe(['scan', '--range', `${me.address}/32`], 'CI Tester\nYES\n');
+    const r = await exe(['scan', '--range', `${me.address}/32`], 'CI Tester\nYES\n');
     if (r.code !== 0) throw new Error(`${r.code} ${r.out.slice(-600)}`);
     const { data: scan } = await admin.from('security_scans').select('id, authorized_by, host_count, open_port_count, network_summary').eq('organization_id', orgId)
       .order('created_date', { ascending: false }).limit(1).single();
@@ -175,7 +185,7 @@ async function main() {
 
   await check('unattended scan with --confirm-authorized works; a local copy is saved', async () => {
     const out = path.join(HOME, 'ci-scan.json');
-    const r = exe(['scan', '--range', `${me.address}/32`, '--confirm-authorized', 'CI Unattended', '--output', out]);
+    const r = await exe(['scan', '--range', `${me.address}/32`, '--confirm-authorized', 'CI Unattended', '--output', out]);
     const saved = existsSync(out) ? JSON.parse(readFileSync(out, 'utf8')) : null;
     const ok = r.code === 0 && saved?.authorization?.confirmed_by === 'CI Unattended' && saved.networks[0].cidr === `${me.address}/32`;
     return ok ? true : { fail: `${r.code} ${r.out.slice(-400)}` };
@@ -183,11 +193,11 @@ async function main() {
 
   await check('dry run scans but uploads nothing', async () => {
     const before = await scansBefore();
-    const r = exe(['scan', '--range', `${me.address}/32`, '--confirm-authorized', 'CI Test', '--dry-run']);
+    const r = await exe(['scan', '--range', `${me.address}/32`, '--confirm-authorized', 'CI Test', '--dry-run']);
     return r.code === 0 && r.out.includes('nothing was uploaded') && (await scansBefore()) === before ? true : { fail: `${r.code} ${r.out.slice(-300)}` };
   });
 
-  await check('a stolen link file is useless to another Windows user/PC (key only unlocks under DPAPI)', () => {
+  await check('a stolen link file is useless to another Windows user/PC (key only unlocks under DPAPI)', async () => {
     const cfg = JSON.parse(readFileSync(path.join(HOME, 'config.json'), 'utf8'));
     const blob = Buffer.from(cfg.protected_private_key, 'base64');
     // The DPAPI blob starts with the DPAPI header (version 1 + provider GUID), not the raw key.
@@ -198,14 +208,14 @@ async function main() {
   await check('after unlinking in Coinexa, the .exe can no longer upload', async () => {
     const cfg = JSON.parse(readFileSync(path.join(HOME, 'config.json'), 'utf8'));
     const rev = await fn('securityScan', { action: 'revokeDevice', device_id: cfg.device_id });
-    const r = exe(['scan', '--range', `${me.address}/32`, '--confirm-authorized', 'CI Test']);
-    const st = exe(['status']);
+    const r = await exe(['scan', '--range', `${me.address}/32`, '--confirm-authorized', 'CI Test']);
+    const st = await exe(['status']);
     return rev.status === 200 && r.code === 4 && /unlinked/i.test(r.out) && st.code === 4 ? true : { fail: `${rev.status} ${r.code} ${r.out.slice(-300)} | ${st.code}` };
   });
 
-  await check('unlinking on the PC removes the stored key', () => {
-    const r = exe(['unlink', '--yes']);
-    const st = exe(['status']);
+  await check('unlinking on the PC removes the stored key', async () => {
+    const r = await exe(['unlink', '--yes']);
+    const st = await exe(['status']);
     return r.code === 0 && !existsSync(path.join(HOME, 'config.json')) && st.code === 3 ? true : { fail: `${r.code} ${st.code} ${r.out}` };
   });
 
