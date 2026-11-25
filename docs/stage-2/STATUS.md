@@ -79,6 +79,22 @@ payment needs the Stripe test key (owner step 3 below).
 | 6. Security | Two-step sign-in (TOTP) for everyone, required for admins; Cloudflare Turnstile CAPTCHA on sign-up, sign-in, reset, resend and job applications |
 | 7. Legal, backups, tests | Privacy and Terms updated (lawyer review items marked); backup and restore test passes (28/28 tables); E2E 113/0, browser 76 views/0 problems, Windows scanner pass |
 
+## Launch preparation, round 2 (25 Nov)
+
+- Menu follows sign-in state: Sign In / Sign Up when signed out; Security and Sign Out
+  when signed in; Admin Console only for platform admins (server still enforces role +
+  two-step on every admin page and function). Fits from 1024 px up; mobile menu below.
+- Stripe: refunds and disputes recorded in the audit log; customer billing portal (test);
+  live setup prepared and gated (`stripe-live-setup.yml`, main branch, approval phrase).
+- Email: `email-domain.yml` registers coinexa.net in Resend and adds DNS at Hostinger
+  append-only after approval, then verifies and sends a test email. Needs two secrets
+  from the owner: RESEND_ADMIN_API_KEY, HOSTINGER_API_TOKEN.
+- Scanner: Azure Artifact Signing step ready; turns on when its secrets exist.
+- Read-only `launch-audit.yml`: DNS, Supabase usage/backups/owner two-step, Stripe readiness.
+- Legal readiness review for the attorney: https://claude.ai/artifact/PekqbtSJPFeeAx5SJNt6iW
+- Tests: E2E 116/0, browser 79 views/0 problems, Windows scanner 16/0, backup 28/28
+  tables (run the backup test on its own: concurrent test writes change row counts).
+
 ## Remaining owner steps (need your accounts)
 
 1. ~~Hostinger FTP~~ done 24 Nov (host and user in `deploy/staging.env`, password as a GitHub secret).
