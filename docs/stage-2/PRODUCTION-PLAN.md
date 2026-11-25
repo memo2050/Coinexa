@@ -80,3 +80,35 @@ No Base44 data is migrated: production starts empty, as agreed.
 - Decide when to connect agents to real outside tools (currently drafting assistants).
 - Code-signing certificate for the Windows scanner (paid, not approved; the scanner is
   unsigned, so Windows SmartScreen will warn).
+
+## 7. Audit findings (25 Nov 2026, read-only launch audit)
+
+**Supabase (staging, Free plan):** database 15 MB, 1 file (14 kB), 1 account, 17 agents,
+region us-west-2. **Automatic backups kept: 0** (Free has none; the tested backup workflow
+is the only backup today). Pro is needed for launch mainly for daily backups and no pausing;
+size is far below the Pro allowance (8 GB database). Recommended: Pro + Micro compute
+($25/month total), no point-in-time recovery yet. Owner approval required.
+
+**Stripe account:** US, details submitted, charges enabled, **payouts not enabled** (add and
+verify a bank account in Stripe → Settings → Payouts), business website and support email
+**not set** (Settings → Public details), Stripe Tax **pending** (owner/accountant decision).
+Test mode: 15 agent prices, webhook with 9 events (incl. refunds and disputes), customer
+portal settings (card update, invoices, no cancel; agents are cancelled in Coinexa).
+Live setup is prepared in `.github/workflows/stripe-live-setup.yml` (same code as the test
+setup) and refuses to run without "APPROVE STRIPE LIVE", a live key and the production project.
+
+**DNS (coinexa.net, Hostinger, nameservers ns1/ns2.dns-parking.com):** root A and
+`www` point at Base44 on Render (do not touch until cut-over); MX and SPF are Hostinger
+mail (keep); DMARC `p=none`. Resend needs only new names (`resend._domainkey`, `send`), so
+nothing existing changes. `.github/workflows/email-domain.yml` adds them append-only after
+"APPROVE DNS ADD", verifies all existing records are unchanged, then verifies the domain and
+sends a real test email.
+
+**Code signing:** recommended **Azure Artifact Signing, Basic, about $9.99/month**
+(Microsoft-managed keys, signs in GitHub Actions, no USB token). Eligibility: organizations
+in the USA, Canada, EU, UK; individuals in the USA and Canada only. Fallback: an OV
+certificate from a CA (about $150–300/year, needs a hardware token or cloud HSM). EV is no
+longer worth the premium: since 2024 it gives no instant SmartScreen trust; reputation builds
+with downloads either way. The scanner workflow now signs and verifies automatically once
+these secrets exist: AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET,
+ARTIFACT_SIGNING_ENDPOINT, ARTIFACT_SIGNING_ACCOUNT, ARTIFACT_SIGNING_PROFILE.

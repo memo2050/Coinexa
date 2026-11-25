@@ -156,7 +156,13 @@ async function action(req: Request, body: Row) {
   if (name === 'portal') {
     if (!manage) throw fail('Only a workspace owner or admin can manage billing.', 403);
     if (!org.stripe_customer_id) throw fail('There is no billing account yet.', 404);
-    const session = await stripe().post('/billing_portal/sessions', { customer: org.stripe_customer_id, return_url: `${appUrl()}/agents` });
+    // Uses the portal settings made for agent hires (card update and invoices; each agent
+    // is cancelled from its own card in Coinexa, so the portal does not cancel).
+    const s = stripe();
+    const configs = await s.get('/billing_portal/configurations', { active: 'true', limit: 20 });
+    const config = (configs.data || []).find((c: { metadata?: Record<string, string> }) => c.metadata?.coinexa === 'agent_hires');
+    if (!config) throw fail('The billing portal is not set up yet.', 503);
+    const session = await s.post('/billing_portal/sessions', { customer: org.stripe_customer_id, configuration: config.id, return_url: `${appUrl()}/agents` });
     return { url: session.url };
   }
 

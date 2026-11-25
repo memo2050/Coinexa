@@ -148,6 +148,10 @@ jobs:
             echo "AI_MONTHLY_BUDGET_USD=18"
             [ -n "$STAGING_HOST" ] && echo "APP_URL=https://${STAGING_HOST}" && echo "ALLOWED_ORIGINS=https://${STAGING_HOST},http://localhost:5173"
             [ -n "$OWNER_EMAIL" ] && echo "EMAIL_REDIRECT_TO=${OWNER_EMAIL}"
+            # Sender address: set EMAIL_FROM in deploy/staging.env ONLY after the email-domain
+            # workflow reports "verified" and "test email delivered". Staging keeps redirecting
+            # every email to the owner regardless; real customer emails are a production setting.
+            [ -n "$EMAIL_FROM" ] && echo "EMAIL_FROM=${EMAIL_FROM}"
             [ -n "$ANTHROPIC_API_KEY" ] && echo "ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}"
             [ -n "$RESEND_API_KEY" ] && echo "RESEND_API_KEY=${RESEND_API_KEY}"
             [ -n "$TURNSTILE_SECRET_KEY" ] && [ -n "$TURNSTILE_SITE_KEY" ] && echo "TURNSTILE_SECRET_KEY=${TURNSTILE_SECRET_KEY}"

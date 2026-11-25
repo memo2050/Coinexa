@@ -1,55 +1,115 @@
-name: Email domain (Resend) — register and check
+name: Email domain (Resend + Hostinger DNS)
 
-# Registers the sending domain with Resend (no DNS change) and prints the DNS records
-# the owner must add, then reports their verification status. Runs when
-# ops/email-domain.request changes. Line 1 of that file = the domain (e.g. coinexa.net),
-# line 2 = "register" or "check".
+# Sets up coinexa.net as the sending domain, safely and step by step:
+#   1. Registers the domain with Resend (needs RESEND_ADMIN_API_KEY: a "Full access" key;
+#      the sending-only RESEND_API_KEY cannot manage domains) and prints the DNS records.
+#   2. Only if ops/email-domain.request line 3 is exactly "APPROVE DNS ADD" and the
+#      HOSTINGER_API_TOKEN secret exists: adds ONLY Resend's records to the Hostinger zone.
+#      Validated first, added with overwrite=false (append), never touching existing
+#      names; afterwards every record that existed before is checked to be unchanged.
+#      Rollback: the added names (resend._domainkey, send) can be deleted on their own.
+#   3. Asks Resend to verify, waits up to 10 minutes.
+#   4. When verified, sends one test email from the domain to the owner and checks delivery.
+# Customer emails are NOT switched on here: that is a separate, reviewed change.
+#
+# ops/email-domain.request: line 1 = domain, line 2 = register | check, line 3 = approval.
 on:
   push:
     branches: [stage-2/build]
     paths: [ops/email-domain.request]
 
+permissions:
+  contents: read
+
 jobs:
   domain:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 20
     env:
+      RESEND_ADMIN_API_KEY: ${{ secrets.RESEND_ADMIN_API_KEY }}
       RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+      HOSTINGER_API_TOKEN: ${{ secrets.HOSTINGER_API_TOKEN }}
+      OWNER_EMAIL: ${{ vars.OWNER_EMAIL }}
     steps:
       - uses: actions/checkout@v4
-      - name: Register or check the domain
+      - name: Register, add DNS (approved only), verify, test
         run: |
           node - <<'EOF'
           const fs = require('fs');
-          const [domain, mode = 'check'] = fs.readFileSync('ops/email-domain.request', 'utf8').split('\n').map((s) => s.trim());
-          if (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(domain)) { console.log('No valid domain on line 1.'); process.exit(1); }
-          const api = async (path, init = {}) => {
-            const r = await fetch(`https://api.resend.com${path}`, { ...init, headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' } });
-            const j = await r.json().catch(() => ({}));
-            return { status: r.status, j };
+          const [domain, mode = 'check', approval = ''] = fs.readFileSync('ops/email-domain.request', 'utf8').split('\n').map((s) => s.trim());
+          const out = (s = '') => { console.log(s); fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, s + '\n'); };
+          const fail = (s) => { out(`**Stopped:** ${s}`); process.exit(1); };
+          if (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(domain)) fail('no valid domain on line 1');
+          const adminKey = process.env.RESEND_ADMIN_API_KEY;
+          if (!adminKey) fail('RESEND_ADMIN_API_KEY is not set. Add a Resend "Full access" API key as that GitHub secret (the existing key can only send).');
+          const resend = async (path, init = {}, key = adminKey) => {
+            const r = await fetch(`https://api.resend.com${path}`, { ...init, headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' } });
+            return { status: r.status, j: await r.json().catch(() => ({})) };
           };
+          const hostinger = async (method, path, body) => {
+            const r = await fetch(`https://developers.hostinger.com/api/dns/v1${path}`, { method, headers: { Authorization: `Bearer ${process.env.HOSTINGER_API_TOKEN}`, Accept: 'application/json', 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+            return { status: r.status, j: await r.json().catch(() => ({})) };
+          };
+          const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
           (async () => {
-            const list = await api('/domains');
-            if (list.status === 401 || list.status === 403) {
-              console.log(`Resend refused the domain API (${list.status}): ${JSON.stringify(list.j).slice(0, 200)}`);
-              console.log('The API key is probably "Sending access" only. Add the domain in the Resend dashboard instead.');
-              process.exit(1);
-            }
+            // 1. Resend domain
+            const list = await resend('/domains');
+            if (list.status >= 300) fail(`Resend domain API refused (${list.status} ${list.j.name || ''}). The key needs "Full access".`);
             let d = (list.j.data || []).find((x) => x.name === domain);
             if (!d && mode === 'register') {
-              const c = await api('/domains', { method: 'POST', body: JSON.stringify({ name: domain, region: 'us-east-1' }) });
-              if (c.status >= 300) { console.log(`Register failed (${c.status}): ${JSON.stringify(c.j).slice(0, 300)}`); process.exit(1); }
-              d = c.j;
-              console.log(`Registered ${domain} with Resend.`);
+              const c = await resend('/domains', { method: 'POST', body: JSON.stringify({ name: domain, region: 'us-east-1' }) });
+              if (c.status >= 300) fail(`register failed (${c.status}): ${JSON.stringify(c.j).slice(0, 200)}`);
+              d = c.j; out(`Registered ${domain} with Resend.`);
             }
-            if (!d) { console.log(`${domain} is not registered with Resend.`); process.exit(1); }
-            if (mode === 'check') await api(`/domains/${d.id}/verify`, { method: 'POST' });
-            const full = await api(`/domains/${d.id}`);
-            const info = full.j;
-            const lines = [`## ${domain}: ${info.status}`, '', '| Type | Name (host) | Value | Priority | Status |', '|---|---|---|---|---|'];
-            for (const r of info.records || []) lines.push(`| ${r.type} | ${r.name} | \`${r.value}\` | ${r.priority ?? ''} | ${r.status} |`);
-            const out = lines.join('\n');
-            console.log(out);
-            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, out + '\n');
-          })();
+            if (!d) fail(`${domain} is not registered with Resend (use mode "register").`);
+            let info = (await resend(`/domains/${d.id}`)).j;
+            const rel = (name) => name === domain ? '@' : name.endsWith('.' + domain) ? name.slice(0, -domain.length - 1) : name;
+            out(`## ${domain}: ${info.status}`); out();
+            out('| Type | Host (name) | Value | Priority | Status |'); out('|---|---|---|---|---|');
+            for (const r of info.records || []) out(`| ${r.type} | ${rel(r.name)} | \`${r.value}\` | ${r.priority ?? ''} | ${r.status} |`);
+            out();
+
+            // 2. Hostinger DNS (append only, after approval)
+            if (info.status !== 'verified' && approval === 'APPROVE DNS ADD') {
+              if (!process.env.HOSTINGER_API_TOKEN) fail('HOSTINGER_API_TOKEN is not set; add the records by hand in hPanel (see table).');
+              const before = await hostinger('GET', `/zones/${domain}`);
+              if (before.status !== 200 || !Array.isArray(before.j)) fail(`could not read the Hostinger zone (${before.status})`);
+              const key = (z) => `${z.type} ${z.name} ${(z.records || []).map((r) => r.content).sort().join(',')}`;
+              const existing = new Set(before.j.map(key));
+              const want = (info.records || []).map((r) => ({ name: rel(r.name), type: r.type, ttl: 3600,
+                records: [{ content: r.type === 'MX' ? `${r.priority ?? 10} ${r.value}` : r.value }] }));
+              const clash = want.filter((w) => before.j.some((z) => z.name === w.name && z.type === w.type));
+              if (clash.length) fail(`records already exist at ${clash.map((c) => `${c.type} ${c.name}`).join(', ')}; not touching them. Check them in hPanel.`);
+              const v = await hostinger('POST', `/zones/${domain}/validate`, { overwrite: false, zone: want });
+              if (v.status >= 300) fail(`Hostinger validation refused the records (${v.status}): ${JSON.stringify(v.j).slice(0, 300)}`);
+              const put = await hostinger('PUT', `/zones/${domain}`, { overwrite: false, zone: want });
+              if (put.status >= 300) fail(`Hostinger update failed (${put.status}): ${JSON.stringify(put.j).slice(0, 300)}`);
+              const after = await hostinger('GET', `/zones/${domain}`);
+              const now = new Set(after.j.map(key));
+              const lost = [...existing].filter((k) => !now.has(k));
+              if (lost.length) fail(`ALERT: ${lost.length} existing record(s) changed: ${lost.join(' | ')}`);
+              out(`Added ${want.length} record(s) at Hostinger (append only). All ${existing.size} existing record sets unchanged.`);
+            } else if (info.status !== 'verified') {
+              out('DNS not changed (line 3 of the request is not "APPROVE DNS ADD").');
+            }
+
+            // 3. Verify
+            if (info.status !== 'verified') {
+              await resend(`/domains/${d.id}/verify`, { method: 'POST' });
+              for (let i = 0; i < 20 && info.status !== 'verified' && info.status !== 'failed'; i++) { await sleep(30000); info = (await resend(`/domains/${d.id}`)).j; }
+              out(`Verification: **${info.status}** (${(info.records || []).map((r) => `${r.type} ${rel(r.name)}=${r.status}`).join(', ')})`);
+            }
+            if (info.status !== 'verified') { out('Not verified yet: DNS can take up to a few hours. Run "check" again later.'); return; }
+
+            // 4. Test email from the domain to the owner
+            if (!process.env.OWNER_EMAIL) fail('OWNER_EMAIL repository variable is not set');
+            const send = await resend('/emails', { method: 'POST', body: JSON.stringify({ from: `Coinexa <noreply@${domain}>`, to: [process.env.OWNER_EMAIL],
+              subject: 'Coinexa email domain test', text: `This is a test from ${domain} via Resend. If you received it, the sending domain works.` }) }, process.env.RESEND_API_KEY);
+            if (send.status >= 300) fail(`test email refused (${send.status}): ${JSON.stringify(send.j).slice(0, 200)}`);
+            let ev = 'queued';
+            for (let i = 0; i < 12 && !['delivered', 'bounced', 'complained'].includes(ev); i++) { await sleep(10000); ev = (await resend(`/emails/${send.j.id}`)).j.last_event || ev; }
+            out(`Test email from noreply@${domain} to the owner: **${ev}**`);
+            if (ev !== 'delivered') fail('test email not confirmed delivered');
+            out('Domain verified and test email delivered. Customer emails can now be switched on (separate change).');
+          })().catch((e) => fail(e.message));
           EOF

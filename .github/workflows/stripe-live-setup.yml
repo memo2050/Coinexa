@@ -1,0 +1,51 @@
+# Stripe LIVE-MODE setup for PRODUCTION. Prepared, NOT run.
+#
+# Same code as the staging test setup (scripts/stripe-setup.mjs), in live mode. It only
+# runs when ALL of these hold, and refuses otherwise:
+#   - ops/stripe-live-setup.request line 1 is exactly "APPROVE STRIPE LIVE" (owner's approval)
+#   - secret PROD_STRIPE_SECRET_KEY is a LIVE key (sk_live_ / rk_live_)
+#   - secret PROD_SUPABASE_PROJECT_REF is set and is NOT the staging project
+#   - repository variable PRODUCTION_SITE_URL is set (e.g. https://coinexa.net)
+# It creates the 15 live agent prices from the production database, the customer portal
+# settings and the live webhook (pointing at the PRODUCTION function), and stores the
+# webhook secret and price ids as production function secrets. It charges nobody.
+name: Stripe live setup (production, approval required)
+
+on:
+  push:
+    branches: [main]
+    paths: ['ops/stripe-live-setup.request']
+
+permissions:
+  contents: read
+
+jobs:
+  stripe-live:
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      STRIPE_SECRET_KEY: ${{ secrets.PROD_STRIPE_SECRET_KEY }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.PROD_SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_PROJECT_REF: ${{ secrets.PROD_SUPABASE_PROJECT_REF }}
+      SITE_URL: ${{ vars.PRODUCTION_SITE_URL }}
+      SITE_LABEL: production
+      STRIPE_MODE: live
+      RECREATE: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Gates (approval, live key, production project)
+        run: |
+          [ "$(head -n1 ops/stripe-live-setup.request 2>/dev/null)" = "APPROVE STRIPE LIVE" ] || { echo "Owner approval phrase missing."; exit 1; }
+          case "$STRIPE_SECRET_KEY" in sk_live_*|rk_live_*) ;; *) echo "A Stripe LIVE key is required in PROD_STRIPE_SECRET_KEY."; exit 1;; esac
+          STAGING=$(grep -E '^SUPABASE_PROJECT_REF=' deploy/staging.env | cut -d= -f2)
+          [ -n "$SUPABASE_PROJECT_REF" ] && [ "$SUPABASE_PROJECT_REF" != "$STAGING" ] || { echo "PROD_SUPABASE_PROJECT_REF must be the production project, not staging."; exit 1; }
+          [ -n "$SITE_URL" ] || { echo "PRODUCTION_SITE_URL variable missing."; exit 1; }
+      - uses: supabase/setup-cli@v1
+        with: { version: 3.3.0 }
+      - name: Live prices, portal, webhook, function secrets
+        run: |
+          supabase projects api-keys --remote="$SUPABASE_PROJECT_REF" --reveal -o json > /tmp/keys.json
+          node scripts/stripe-setup.mjs
+          rm -f /tmp/keys.json
+          supabase secrets set --remote="$SUPABASE_PROJECT_REF" --yes --env-file /tmp/stripe.env
+          rm -f /tmp/stripe.env

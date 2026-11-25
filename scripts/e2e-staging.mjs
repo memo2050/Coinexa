@@ -521,6 +521,10 @@ async function stripeChecks(A, orgA) {
       const { data } = await admin.from('stripe_events').select('id, result').like('result', 'agent hire%').order('created_date', { ascending: false }).limit(5);
       return data.length > 0 ? `${data.length} recent agent-hire events recorded once each` : { fail: 'no events recorded' };
     });
+    await check('billing-stripe', 'the billing portal opens for the workspace owner (card update, invoices)', async () => {
+      const r = await BILL(A.token, { action: 'portal' });
+      return r.status === 200 && /^https:\/\/billing\.stripe\.com\//.test(r.data.url || '') ? 'Stripe test portal link issued' : { fail: `status ${r.status} ${JSON.stringify(r.data).slice(0, 150)}` };
+    });
     await check('billing-stripe', 'a refund is recorded for the admin; the agent stays until its line is cancelled', async () => {
       const inv = await stripeApi('GET', `/invoices/${sub.latest_invoice}?expand[]=payments`);
       const pi = inv.payments?.data?.[0]?.payment?.payment_intent;

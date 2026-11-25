@@ -102,8 +102,73 @@ jobs:
           SCANNER_EXE: coinexa-network-scanner-staging.exe
         run: node scripts/scanner-windows-e2e.mjs
 
-  publish:
+  # Code signing (Azure Artifact Signing). Runs only when the signing account secrets
+  # exist; otherwise the tested unsigned build is published exactly as before. The signed
+  # file is checked with signtool and PowerShell before it can be published.
+  sign:
     needs: [build, windows-test]
+    runs-on: windows-latest
+    timeout-minutes: 15
+    outputs:
+      signed: ${{ steps.result.outputs.signed }}
+      sha256: ${{ steps.result.outputs.sha256 }}
+    env:
+      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+      SIGNING_ENDPOINT: ${{ secrets.ARTIFACT_SIGNING_ENDPOINT }}
+      SIGNING_ACCOUNT: ${{ secrets.ARTIFACT_SIGNING_ACCOUNT }}
+      SIGNING_PROFILE: ${{ secrets.ARTIFACT_SIGNING_PROFILE }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { name: scanner-exe, path: out }
+      - name: Signing configured?
+        id: cfg
+        shell: bash
+        run: |
+          if [ -n "$AZURE_CLIENT_SECRET" ] && [ -n "$SIGNING_ENDPOINT" ] && [ -n "$SIGNING_ACCOUNT" ] && [ -n "$SIGNING_PROFILE" ]; then
+            echo "on=true" >> "$GITHUB_OUTPUT"; echo "Signing: on (Azure Artifact Signing)"
+          else
+            echo "on=false" >> "$GITHUB_OUTPUT"; echo "Signing: off (no signing account configured): publishing the tested unsigned build"
+          fi
+      - name: Sign
+        if: steps.cfg.outputs.on == 'true'
+        uses: azure/trusted-signing-action@v0
+        with:
+          azure-tenant-id: ${{ env.AZURE_TENANT_ID }}
+          azure-client-id: ${{ env.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ env.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ env.SIGNING_ENDPOINT }}
+          trusted-signing-account-name: ${{ env.SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ env.SIGNING_PROFILE }}
+          files-folder: out
+          files-folder-filter: exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+      - name: Verify signature
+        if: steps.cfg.outputs.on == 'true'
+        shell: pwsh
+        run: |
+          $f = "out/coinexa-network-scanner-staging.exe"
+          $sig = Get-AuthenticodeSignature $f
+          "Status: $($sig.Status); signer: $($sig.SignerCertificate.Subject); timestamped: $([bool]$sig.TimeStamperCertificate)"
+          if ($sig.Status -ne 'Valid' -or -not $sig.TimeStamperCertificate) { throw "signature not valid or not timestamped" }
+          $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" -Recurse -Filter signtool.exe | Where-Object FullName -like '*x64*' | Select-Object -Last 1
+          & $signtool.FullName verify /pa /tw $f
+          if ($LASTEXITCODE -ne 0) { throw "signtool verify failed" }
+      - uses: actions/upload-artifact@v4
+        if: steps.cfg.outputs.on == 'true'
+        with: { name: scanner-exe-signed, path: out/coinexa-network-scanner-staging.exe, retention-days: 14 }
+      - name: Result
+        id: result
+        shell: bash
+        run: |
+          echo "signed=${{ steps.cfg.outputs.on }}" >> "$GITHUB_OUTPUT"
+          echo "sha256=$(sha256sum out/coinexa-network-scanner-staging.exe | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+  publish:
+    needs: [build, windows-test, sign]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -114,15 +179,18 @@ jobs:
         run: grep -E '^[A-Z_]+=' deploy/staging.env >> "$GITHUB_ENV"
       - uses: actions/download-artifact@v4
         with: { name: scanner-exe, path: downloads }
+      - uses: actions/download-artifact@v4
+        if: needs.sign.outputs.signed == 'true'
+        with: { name: scanner-exe-signed, path: downloads }
       - name: Prepare download folder
         run: |
           cd downloads
           SHA=$(sha256sum coinexa-network-scanner-staging.exe | cut -d' ' -f1)
-          test "$SHA" = "${{ needs.build.outputs.sha256 }}"
+          test "$SHA" = "${{ needs.sign.outputs.sha256 }}"
           echo "$SHA  coinexa-network-scanner-staging.exe" > coinexa-network-scanner-staging.exe.sha256
           SIZE=$(stat -c %s coinexa-network-scanner-staging.exe)
-          printf '{"version":"%s","sha256":"%s","size":%s,"built_at":"%s","tested_run":"%s/%s/actions/runs/%s","signed":false,"channel":"staging"}\n' \
-            "${{ needs.build.outputs.version }}" "$SHA" "$SIZE" "$(date -u +%FT%TZ)" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" > scanner.json
+          printf '{"version":"%s","sha256":"%s","size":%s,"built_at":"%s","tested_run":"%s/%s/actions/runs/%s","signed":%s,"channel":"staging"}\n' \
+            "${{ needs.build.outputs.version }}" "$SHA" "$SIZE" "$(date -u +%FT%TZ)" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" "${{ needs.sign.outputs.signed == 'true' }}" > scanner.json
           cat > .htaccess <<'EOF'
           Options -Indexes
           <FilesMatch "\.exe$">
@@ -150,7 +218,7 @@ jobs:
           curl -fsSL -H 'Cache-Control: no-cache' "$URL?nocache=$GITHUB_RUN_ID" -o check.exe -D headers.txt
           grep -i '^content-type\|^content-disposition' headers.txt || true
           GOT=$(sha256sum check.exe | cut -d' ' -f1)
-          echo "published: $GOT"; echo "tested:    ${{ needs.build.outputs.sha256 }}"
-          test "$GOT" = "${{ needs.build.outputs.sha256 }}"
+          echo "published: $GOT"; echo "expected:  ${{ needs.sign.outputs.sha256 }} (signed=${{ needs.sign.outputs.signed }})"
+          test "$GOT" = "${{ needs.sign.outputs.sha256 }}"
           curl -fsS "https://${STAGING_HOST}/downloads/scanner.json?nocache=$GITHUB_RUN_ID"
           echo "## Published $URL (SHA-256 $GOT)" >> "$GITHUB_STEP_SUMMARY"
