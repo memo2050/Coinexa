@@ -27,7 +27,7 @@ let userId;
 let orgId;
 
 const PUBLIC = ['/', '/login', '/register', '/forgot-password', '/reset-password', '/privacy', '/terms', '/does-not-exist'];
-const USER = ['/agents', '/agents/new', '/tasks', '/security-check', '/billing/success', '/agents/:id'];
+const USER = ['/agents', '/agents/new', '/tasks', '/security-check', '/billing/success', '/account/security', '/agents/:id'];
 const ADMIN = ['/admin', '/admin/agents', '/admin/runs', '/admin/usage', '/admin/customers', '/admin/billing', '/admin/reports', '/admin/activity', '/inbox', '/usage'];
 const PUBLIC_AFTER = [];
 const VIEWPORTS = { desktop: { width: 1440, height: 900 }, mobile: { width: 390, height: 844, isMobile: true, hasTouch: true } };

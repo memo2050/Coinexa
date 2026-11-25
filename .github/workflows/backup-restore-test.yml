@@ -3,9 +3,8 @@
 # 1. Takes a full logical backup of the staging database with the Supabase CLI
 #    (roles, schema, data), the same files used to restore to a new project.
 # 2. Restores it into a throwaway local Supabase database on this runner.
-# 3. Compares row counts of every public table, checks that migrations, access rules
-#    (RLS) and billing functions came back, and runs the access-rule test suite on the
-#    restored copy.
+# 3. Compares row counts of every public table, and checks that access rules
+#    (RLS), policies, sign-in accounts and billing functions came back.
 #
 # The repository is public, so the backup is never uploaded or printed: it lives only
 # on this runner and is deleted at the end. Output is table names, OK/MISMATCH and totals.
