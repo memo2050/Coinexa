@@ -1,11 +1,38 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowRight, Copy, KeyRound, Laptop, Loader2, RefreshCw, ShieldCheck, Unlink } from 'lucide-react';
+import { ArrowRight, Copy, Download, KeyRound, Laptop, Loader2, RefreshCw, ShieldCheck, Unlink } from 'lucide-react';
 import Nav from '@/components/site/Nav';
 import Footer from '@/components/site/Footer';
 import SectionHeading from '@/components/site/SectionHeading';
 import { securityScan, errorText } from '@/api/securityScan';
 import { ErrorNote, Loading, Panel, Stat, ghostBtn, primaryBtn, when } from '@/components/recruitment/ui';
+
+// The Windows scanner is published to /downloads only after it passes the Windows tests.
+function ScannerDownload() {
+  const [info, setInfo] = useState(null);
+  useEffect(() => {
+    fetch(`/downloads/scanner.json?t=${Date.now()}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => setInfo(j && j.sha256 ? j : false))
+      .catch(() => setInfo(false));
+  }, []);
+  if (info === null) return null;
+  if (!info) return <p className="text-xs text-slate-500">The Windows scanner download is not available yet.</p>;
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4">
+      <a href="/downloads/coinexa-network-scanner-staging.exe" download className={primaryBtn}><Download className="h-4 w-4" /> Download for Windows</a>
+      <p className="mt-2 text-xs text-slate-400">Version {info.version} · {(info.size / 1048576).toFixed(1)} MB · Windows 10 and 11 (64-bit) · no installation or admin rights needed</p>
+      <p className="mt-1 break-all font-mono text-[0.65rem] text-slate-500">SHA-256 {info.sha256}</p>
+      <p className="mt-2 text-xs text-amber-200/90">Staging test build, not yet code-signed: Windows may show “Windows protected your PC”. Choose More info → Run anyway only if the SHA-256 above matches your download.</p>
+      <ol className="mt-2 list-decimal space-y-0.5 pl-4 text-xs text-slate-400">
+        <li>Download and double-click the file.</li>
+        <li>Choose 1 (Link this PC) and enter the linking code from this page.</li>
+        <li>Choose 2 (Scan my network), pick your network and confirm you are authorised.</li>
+        <li>The results appear under Scans below.</li>
+      </ol>
+    </div>
+  );
+}
 
 export default function NetworkSecurityHome() {
   const [data, setData] = useState(null);
@@ -102,7 +129,7 @@ export default function NetworkSecurityHome() {
                       <button type="button" className={primaryBtn} onClick={createCode} disabled={!!busy}>
                         {busy === 'code' ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />} {code ? 'New linking code' : 'Create linking code'}
                       </button>
-                      <p className="text-xs text-slate-500">The Windows scanner download will be available here in the next phase.</p>
+                      <ScannerDownload />
                     </div>
                   ) : <p className="text-sm text-slate-400">Only workspace owners and admins can link PCs.</p>}
                 </Panel>

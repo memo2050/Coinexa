@@ -1,0 +1,156 @@
+name: Windows network scanner (staging)
+
+# Builds the Coinexa Network Scanner for Windows, tests the real .exe on a GitHub-hosted
+# Windows machine against STAGING, and only if every test passes publishes it to the
+# staging site's /downloads folder. Never touches production or main.
+#
+# Runs when the scanner code, this workflow or ops/scanner.request changes on stage-2/build.
+on:
+  push:
+    branches: [stage-2/build]
+    paths: [scanner/**, scripts/scanner-windows-e2e.mjs, .github/workflows/scanner.yml, ops/scanner.request]
+
+concurrency: { group: scanner, cancel-in-progress: false }
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+    outputs:
+      version: ${{ steps.build.outputs.version }}
+      sha256: ${{ steps.build.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Load staging settings
+        run: grep -E '^[A-Z_]+=' deploy/staging.env >> "$GITHUB_ENV"
+      - uses: actions/setup-go@v5
+        with: { go-version: '1.24', cache: false }
+      - name: Vet and unit tests (Linux)
+        working-directory: scanner
+        run: |
+          test -z "$(gofmt -l .)" || { gofmt -l .; echo "gofmt needed"; exit 1; }
+          go vet ./...
+          GOOS=windows GOARCH=amd64 go vet ./...
+          go test ./...
+      - uses: supabase/setup-cli@v1
+        with: { version: 3.3.0 }
+      - name: Build Windows .exe (staging server built in)
+        id: build
+        run: |
+          ANON=$(supabase projects api-keys --remote="$SUPABASE_PROJECT_REF" --reveal -o json | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const k=JSON.parse(s);const x=k.find(x=>["anon","publishable"].includes(x.name))||k.find(x=>["anon","publishable"].includes(x.type));process.stdout.write(x.api_key)})')
+          test -n "$ANON"
+          VERSION="0.2.0-staging.${GITHUB_RUN_NUMBER}"
+          cd scanner
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath \
+            -ldflags "-s -w -X main.serverURL=https://${SUPABASE_PROJECT_REF}.supabase.co -X main.anonKey=${ANON} -X main.version=${VERSION} -X main.channel=staging" \
+            -o ../coinexa-network-scanner-staging.exe .
+          cd ..
+          SHA=$(sha256sum coinexa-network-scanner-staging.exe | cut -d' ' -f1)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "sha256=$SHA" >> "$GITHUB_OUTPUT"
+          ls -l coinexa-network-scanner-staging.exe; echo "SHA-256 $SHA"
+      - uses: actions/upload-artifact@v4
+        with: { name: scanner-exe, path: coinexa-network-scanner-staging.exe, retention-days: 14 }
+
+  windows-test:
+    needs: build
+    runs-on: windows-latest
+    timeout-minutes: 25
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+    defaults:
+      run: { shell: bash }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Load staging settings
+        run: grep -E '^[A-Z_]+=' deploy/staging.env >> "$GITHUB_ENV"
+      - uses: actions/setup-go@v5
+        with: { go-version: '1.24', cache: false }
+      - name: Unit tests on Windows (DPAPI key protection, live scan of this machine's own address)
+        working-directory: scanner
+        run: go test -v ./... 2>&1 | tail -40
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci --no-audit --no-fund
+      - uses: supabase/setup-cli@v1
+        with: { version: 3.3.0 }
+      - name: Project keys (masked)
+        run: |
+          supabase projects api-keys --remote="$SUPABASE_PROJECT_REF" --reveal -o json > keys.json
+          node -e '
+            const fs = require("fs"); const k = JSON.parse(fs.readFileSync("keys.json","utf8"));
+            const pick = (...n) => (k.find((x) => n.includes(x.name)) || k.find((x) => n.includes(x.type)) || {}).api_key;
+            const anon = pick("anon", "publishable"), service = pick("service_role", "secret");
+            if (!anon || !service) { console.error("keys not found"); process.exit(1); }
+            console.log("::add-mask::" + service);
+            fs.appendFileSync(process.env.GITHUB_ENV, `SUPABASE_ANON_KEY=${anon}\nSUPABASE_SERVICE_KEY=${service}\nSUPABASE_URL=https://${process.env.SUPABASE_PROJECT_REF}.supabase.co\n`);
+          '
+          rm -f keys.json
+      - uses: actions/download-artifact@v4
+        with: { name: scanner-exe }
+      - name: Windows Defender scan of the .exe
+        shell: pwsh
+        run: |
+          $exe = (Resolve-Path .\coinexa-network-scanner-staging.exe).Path
+          $mp = "$env:ProgramFiles\Windows Defender\MpCmdRun.exe"
+          if (Test-Path $mp) { & $mp -Scan -ScanType 3 -File $exe -DisableRemediation; "Defender exit code: $LASTEXITCODE (0 = no threat found)" } else { "Defender command line not available on this runner" }
+          Get-AuthenticodeSignature $exe | Format-List Status, StatusMessage
+      - name: End-to-end test of the real .exe against staging
+        env:
+          SCANNER_EXE: coinexa-network-scanner-staging.exe
+        run: node scripts/scanner-windows-e2e.mjs
+
+  publish:
+    needs: [build, windows-test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      FTP_PASSWORD: ${{ secrets.HOSTINGER_FTP_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Load staging settings
+        run: grep -E '^[A-Z_]+=' deploy/staging.env >> "$GITHUB_ENV"
+      - uses: actions/download-artifact@v4
+        with: { name: scanner-exe, path: downloads }
+      - name: Prepare download folder
+        run: |
+          cd downloads
+          SHA=$(sha256sum coinexa-network-scanner-staging.exe | cut -d' ' -f1)
+          test "$SHA" = "${{ needs.build.outputs.sha256 }}"
+          echo "$SHA  coinexa-network-scanner-staging.exe" > coinexa-network-scanner-staging.exe.sha256
+          SIZE=$(stat -c %s coinexa-network-scanner-staging.exe)
+          printf '{"version":"%s","sha256":"%s","size":%s,"built_at":"%s","tested_run":"%s/%s/actions/runs/%s","signed":false,"channel":"staging"}\n' \
+            "${{ needs.build.outputs.version }}" "$SHA" "$SIZE" "$(date -u +%FT%TZ)" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" > scanner.json
+          cat > .htaccess <<'EOF'
+          Options -Indexes
+          <FilesMatch "\.exe$">
+            ForceType application/octet-stream
+          </FilesMatch>
+          <IfModule mod_headers.c>
+            <FilesMatch "\.exe$">
+              Header set Content-Disposition "attachment; filename=coinexa-network-scanner-staging.exe"
+            </FilesMatch>
+            <FilesMatch "\.(exe|json|sha256)$">
+              Header set Cache-Control "no-cache"
+            </FilesMatch>
+          </IfModule>
+          EOF
+          ls -la; cat scanner.json
+      - name: Upload to the staging site (downloads/ only)
+        if: ${{ env.FTP_PASSWORD != '' }}
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq lftp
+          lftp -u "$HOSTINGER_FTP_USER","$FTP_PASSWORD" "$HOSTINGER_FTP_HOST" -e "set ftp:ssl-allow yes; set ssl:verify-certificate no; mkdir -f -p ${HOSTINGER_FTP_DIR:-.}/downloads; mirror -R --delete --verbose=1 downloads/ \"${HOSTINGER_FTP_DIR:-.}/downloads\"; bye"
+      - name: Verify the public download matches the tested build
+        run: |
+          sleep 5
+          URL="https://${STAGING_HOST}/downloads/coinexa-network-scanner-staging.exe"
+          curl -fsSL -H 'Cache-Control: no-cache' "$URL?nocache=$GITHUB_RUN_ID" -o check.exe -D headers.txt
+          grep -i '^content-type\|^content-disposition' headers.txt || true
+          GOT=$(sha256sum check.exe | cut -d' ' -f1)
+          echo "published: $GOT"; echo "tested:    ${{ needs.build.outputs.sha256 }}"
+          test "$GOT" = "${{ needs.build.outputs.sha256 }}"
+          curl -fsS "https://${STAGING_HOST}/downloads/scanner.json?nocache=$GITHUB_RUN_ID"
+          echo "## Published $URL (SHA-256 $GOT)" >> "$GITHUB_STEP_SUMMARY"
