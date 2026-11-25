@@ -206,4 +206,34 @@ do $$ begin
 end $$;
 rollback;
 
+-- Interview tables: no direct browser access; new kinds accepted only where intended.
+begin;
+insert into public.recruitment_campaigns (id, organization_id, title, country, initial_offer, max_budget) values ('camp-i', 'org-c', 'X', 'Egypt', 1, 2);
+insert into public.recruitment_candidates (id, organization_id, campaign_id, full_name, source) values ('cand-i', 'org-c', 'camp-i', 'Y', 'cv_import');
+insert into public.recruitment_interviews (id, organization_id, campaign_id, candidate_id, questions, max_followups, expires_at)
+  values ('int-i', 'org-c', 'camp-i', 'cand-i', '[]', 2, now() + interval '7 days');
+select pg_temp.act_as('00000000-0000-0000-0000-00000000000c', 'c@test.local');
+set local role authenticated;
+do $$ begin
+  begin
+    perform 1 from public.recruitment_interviews limit 1;
+    raise notice 'FAIL: 36 browser can read interviews';
+  exception when insufficient_privilege then raise notice 'pass: 36 interviews are server-only';
+  end;
+  begin
+    perform 1 from public.recruitment_interview_messages limit 1;
+    raise notice 'FAIL: 37 browser can read interview transcripts';
+  exception when insufficient_privilege then raise notice 'pass: 37 interview transcripts are server-only';
+  end;
+end $$;
+reset role;
+do $$ begin
+  begin
+    insert into public.recruitment_interview_plans (organization_id, campaign_id, max_followups) values ('org-c', 'camp-i', 5);
+    raise notice 'FAIL: 38 more than 2 follow-ups accepted';
+  exception when check_violation then raise notice 'pass: 38 follow-ups are capped at 2 per question';
+  end;
+end $$;
+rollback;
+
 select 'ALL RLS CHECKS PASSED' as result;

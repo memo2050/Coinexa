@@ -9,7 +9,7 @@ export const EMPTY_CAMPAIGN = {
   skills: '', certifications: '', languages: '', experience_min: '', experience_max: '',
   work_mode: 'onsite', schedule: '', availability: '', duration: '', description: '',
   currency: 'USD', pay_frequency: 'daily', initial_offer: '', max_budget: '',
-  negotiation_strategy: 'balanced', max_rounds: 3, outreach_mode: 'approval', auto_contact_min_score: 70, retention_days: 180,
+  negotiation_strategy: 'balanced', max_rounds: 3, outreach_mode: 'approval', auto_contact_min_score: 70, retention_days: 180, hiring_manager_name: '', hiring_manager_email: '',
 };
 
 export default function CampaignForm({ initial = EMPTY_CAMPAIGN, submitLabel, onSubmit }) {
@@ -108,6 +108,8 @@ export default function CampaignForm({ initial = EMPTY_CAMPAIGN, submitLabel, on
           </Field>
           <Field label="Minimum score for automatic contact"><input type="number" min="0" max="100" className={inputCls} value={form.auto_contact_min_score} onChange={set('auto_contact_min_score')} disabled={form.outreach_mode !== 'auto'} /></Field>
           <Field label="Keep candidate data after closing (days)"><input type="number" min="7" max="1095" className={inputCls} value={form.retention_days} onChange={set('retention_days')} /></Field>
+          <Field label="Hiring manager name" hint="Receives candidate evaluation reports"><input className={inputCls} value={form.hiring_manager_name || ''} onChange={set('hiring_manager_name')} placeholder="Sara Ahmed" /></Field>
+          <Field label="Hiring manager email"><input type="email" className={inputCls} value={form.hiring_manager_email || ''} onChange={set('hiring_manager_email')} placeholder="hiring@company.com" /></Field>
         </div>
       </Panel>
 

@@ -177,6 +177,9 @@ export const COLUMNS = {
   recruitment_offers: new Set(["id","organization_id","campaign_id","candidate_id","round","party","amount","currency","pay_frequency","outcome","note","created_date","updated_date","created_by_id","created_by"]),
   recruitment_consents: new Set(["id","organization_id","candidate_id","kind","granted","text_version","source","ip_hash","recorded_at","created_date","updated_date","created_by_id","created_by"]),
   recruitment_events: new Set(["id","organization_id","campaign_id","candidate_id","kind","level","detail","created_date","updated_date","created_by_id","created_by"]),
+  recruitment_interview_plans: new Set(["id","organization_id","campaign_id","questions","max_followups","valid_days","status","approved_at","approved_by","created_date","updated_date","created_by_id","created_by"]),
+  recruitment_interviews: new Set(["id","organization_id","campaign_id","candidate_id","questions","max_followups","status","current_index","followups_used","expires_at","started_at","completed_at","evaluation","score","evaluated_at","report_sent_at","created_date","updated_date","created_by_id","created_by"]),
+  recruitment_interview_messages: new Set(["id","organization_id","interview_id","role","kind","question_index","content","created_date","updated_date","created_by_id","created_by"]),
 };
 // END GENERATED COLUMNS
 

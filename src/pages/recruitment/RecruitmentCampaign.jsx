@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { ArrowLeft, Copy, Download, Loader2, Pause, Play, Send, Sparkles, Square, UserPlus } from 'lucide-react';
+import { ArrowLeft, Copy, Download, FileText, Loader2, Pause, Play, Send, Sparkles, Square, UserPlus } from 'lucide-react';
 import Nav from '@/components/site/Nav';
 import Footer from '@/components/site/Footer';
-import { recruitment, errorText, downloadText } from '@/api/recruitment';
+import { recruitment, errorText, downloadText, importCvFiles } from '@/api/recruitment';
 import { ErrorNote, Loading, Panel, Stat, StatusPill, STATUS, ghostBtn, inputCls, money, primaryBtn, when } from '@/components/recruitment/ui';
 import AddCandidates from '@/components/recruitment/AddCandidates';
 import CandidatePanel from '@/components/recruitment/CandidatePanel';
 import CampaignForm from '@/components/recruitment/CampaignForm';
+import InterviewPlan from '@/components/recruitment/InterviewPlan';
 
 const STAGES = ['sourced', 'evaluated', 'contacted', 'interested', 'negotiating', 'awaiting_approval', 'agreed', 'hired', 'declined'];
 
@@ -76,6 +77,12 @@ export default function RecruitmentCampaign() {
     setNotice(`Report downloaded: ${r.summary.hired} hired, ${r.summary.agreed} agreed to compensation (not hired yet), ${r.summary.interested} interested — ${r.summary.required} required.`);
   });
   const setStatus = (status) => run(`status-${status}`, () => recruitment('updateCampaign', { campaign_id: id, campaign: { status } }));
+  const importCvs = (files) => run('cv', async () => {
+    const list = Array.from(files || []);
+    if (!list.length) return;
+    const r = await importCvFiles(id, list);
+    setNotice(`${r.added.length} candidate(s) created from CVs${r.added.length ? `: ${r.added.join(', ')}` : ''}.${r.skipped.length ? ` Skipped — ${r.skipped.join('; ')}` : ''}`);
+  });
   const copyLink = async () => {
     await navigator.clipboard.writeText(campaign.apply_url).catch(() => {});
     setNotice('Application link copied.');
@@ -128,7 +135,7 @@ export default function RecruitmentCampaign() {
               </div>
 
               <div className="inline-flex rounded-full border border-white/10 bg-white/[0.03] p-1">
-                {[['candidates', 'Candidates'], ['sourcing', 'Sourcing'], ['activity', 'Activity'], ...(data.can_manage ? [['settings', 'Settings']] : [])].map(([key, label]) => (
+                {[['candidates', 'Candidates'], ['sourcing', 'Sourcing'], ['interviews', 'Interviews'], ['activity', 'Activity'], ...(data.can_manage ? [['settings', 'Settings']] : [])].map(([key, label]) => (
                   <button key={key} type="button" onClick={() => setTab(key)} className={`rounded-full px-4 py-1.5 text-xs font-semibold ${tab === key ? 'bg-white/[0.12] text-white' : 'text-slate-400 hover:text-white'}`}>{label}</button>
                 ))}
               </div>
@@ -198,8 +205,27 @@ export default function RecruitmentCampaign() {
                   <Panel title="Referrals & company database" description="Add people your team refers or who are already in your own candidate database, one at a time or by CSV export.">
                     {data.can_manage && <button type="button" className={primaryBtn} onClick={() => setAdding(true)}><UserPlus className="h-4 w-4" /> Add candidates</button>}
                   </Panel>
-                  <Panel title="LinkedIn" className="md:col-span-2" description="Searching LinkedIn requires LinkedIn Talent Solutions partner access (Recruiter System Connect) for your company. Coinexa does not scrape LinkedIn or automate LinkedIn accounts. Until access is approved, add LinkedIn profiles you find yourself as referrals or company-database candidates, with the profile text pasted in." />
+                  <Panel title="Import CV files" className="md:col-span-2" description="Upload up to 5 PDF CVs at a time (5 MB each). The agent reads each CV and creates the candidate only from what the CV actually says; files it cannot read are listed, never guessed. Text-based PDFs work best.">
+                    {data.can_manage ? (
+                      <label className={`${primaryBtn} cursor-pointer ${busy ? 'pointer-events-none opacity-60' : ''}`}>
+                        {busy === 'cv' ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />} {busy === 'cv' ? 'Reading CVs…' : 'Choose PDF CVs'}
+                        <input type="file" accept="application/pdf,.pdf" multiple className="hidden" onChange={(e) => { importCvs(e.target.files); e.target.value = ''; }} />
+                      </label>
+                    ) : <p className="text-xs text-slate-400">Only campaign managers can import CVs.</p>}
+                  </Panel>
                 </div>
+              )}
+
+              {tab === 'interviews' && (
+                <InterviewPlan
+                  campaignId={id}
+                  canManage={data.can_manage}
+                  plan={data.plan}
+                  interviews={data.interviews}
+                  candidates={data.candidates}
+                  onOpen={setOpen}
+                  onChanged={load}
+                />
               )}
 
               {tab === 'activity' && (

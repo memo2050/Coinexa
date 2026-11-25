@@ -1,4 +1,4 @@
-import { base44 } from '@/api/base44Client';
+import { base44, supabase } from '@/api/base44Client';
 import { appParams } from '@/lib/app-params';
 
 // All recruitment data goes through the `recruitment` server function: the tables
@@ -36,4 +36,21 @@ export function downloadText(fileName, text, type = 'text/csv;charset=utf-8') {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+// Company bulk import of PDF CVs (multipart; authorised by the signed-in session).
+export async function importCvFiles(campaignId, files) {
+  const { data: session } = await supabase.auth.getSession();
+  const form = new FormData();
+  form.append('mode', 'import');
+  form.append('campaign_id', campaignId);
+  for (const file of files) form.append('files', file);
+  const response = await fetch(`${appParams.supabaseUrl}/functions/v1/recruitment`, {
+    method: 'POST',
+    headers: { apikey: appParams.supabaseAnonKey, Authorization: `Bearer ${session?.session?.access_token || appParams.supabaseAnonKey}` },
+    body: form,
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw Object.assign(new Error(data.error || 'Import failed.'), { data });
+  return data;
 }

@@ -101,3 +101,27 @@ Deno.test('masking and tokens', async () => {
   assert.ok(t.length >= 40 && !/[+/=]/.test(t));
   assert.equal((await sha256(t)).length, 64);
 });
+
+import { interviewNext, interviewTextAllowed, normaliseQuestions } from '../_shared/recruitmentLogic.ts';
+
+Deno.test('interview flow: follow-ups capped per question, then next question, then complete', () => {
+  const s = { questionCount: 3, currentIndex: 0, followupsUsed: 0, maxFollowups: 2 };
+  assert.deepEqual(interviewNext(s, true), { type: 'followup' });
+  assert.deepEqual(interviewNext({ ...s, followupsUsed: 2 }, true), { type: 'question', index: 1 });
+  assert.deepEqual(interviewNext({ ...s, currentIndex: 2 }, false), { type: 'complete' });
+  assert.deepEqual(interviewNext({ ...s, maxFollowups: 0 }, true), { type: 'question', index: 1 });
+});
+
+Deno.test('interview guardrails: protected topics and over-budget amounts are refused', () => {
+  assert.equal(interviewTextAllowed('Which Windows tools do you use to diagnose a slow boot?', 150).ok, true);
+  assert.equal(interviewTextAllowed('Are you married or planning children soon?', 150).reason, 'protected topic');
+  assert.equal(interviewTextAllowed('How old are you, roughly?', 150).reason, 'protected topic');
+  assert.equal(interviewTextAllowed('Could you accept 180 USD per day for this?', 150).reason, 'amount above the authorised maximum');
+  assert.equal(interviewTextAllowed('Would 140 USD per day work for you?', 150).ok, true);
+});
+
+Deno.test('interview plan: questions normalised, empty ones dropped, capped', () => {
+  const q = normaliseQuestions([{ question: 'Explain DHCP in your own words.', criterion: 'Networking' }, { question: '' }, ...Array(20).fill({ question: 'Describe a ticket you solved.' })]);
+  assert.equal(q.length, 12);
+  assert.equal(q[0].id, 'q1');
+});

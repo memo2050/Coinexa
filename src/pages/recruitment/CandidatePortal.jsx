@@ -5,6 +5,7 @@ import Nav from '@/components/site/Nav';
 import Footer from '@/components/site/Footer';
 import { recruitment, uploadCv, errorText } from '@/api/recruitment';
 import { ErrorNote, Field, Loading, Panel, ghostBtn, inputCls, money, primaryBtn, when } from '@/components/recruitment/ui';
+import PortalInterview from '@/components/recruitment/PortalInterview';
 
 const CONSENT_TEXT = {
   data_processing: 'I agree that the company may store and use the information I give here to consider me for this role.',
@@ -129,6 +130,8 @@ export default function CandidatePortal() {
                     </dl>
                     {job.description && <p className="mt-4 whitespace-pre-line text-sm leading-relaxed text-slate-300">{job.description}</p>}
                   </Panel>
+
+                  <PortalInterview token={token} summary={data.interview} dataConsentGiven={!!data.consents?.data_processing?.granted} />
 
                   {data.offers.length > 0 && (
                     <Panel title="Offers so far">

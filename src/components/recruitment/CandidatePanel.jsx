@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
-import { BadgeCheck, CheckCircle2, FileText, Loader2, Mail, Send, ShieldAlert, Sparkles, Trash2, X, XCircle } from 'lucide-react';
-import { recruitment, errorText } from '@/api/recruitment';
+import { BadgeCheck, CheckCircle2, Download, FileText, Loader2, Mail, MessageSquareText, Send, ShieldAlert, Sparkles, Trash2, X, XCircle } from 'lucide-react';
+import { recruitment, errorText, downloadText } from '@/api/recruitment';
+import { INTERVIEW_STATUS } from '@/components/recruitment/InterviewPlan';
 import { ErrorNote, StatusPill, ghostBtn, inputCls, money, primaryBtn, when } from '@/components/recruitment/ui';
 
 const CRITERION_TONE = { met: 'text-emerald-300', partial: 'text-amber-300', missing: 'text-rose-300', unknown: 'text-slate-500', unverified: 'text-rose-300' };
@@ -43,6 +44,19 @@ export default function CandidatePanel({ candidateId, onClose, onChanged }) {
     } catch (e) {
       setError(errorText(e));
       await load();
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const downloadReport = async () => {
+    setBusy('report');
+    setError('');
+    try {
+      const r = await recruitment('candidateReport', { candidate_id: candidateId });
+      downloadText(r.file_name, r.text, 'text/plain;charset=utf-8');
+    } catch (e) {
+      setError(errorText(e));
     } finally {
       setBusy('');
     }
@@ -160,6 +174,85 @@ export default function CandidatePanel({ candidateId, onClose, onChanged }) {
               </div>
             </Section>
 
+            <Section title="Written interview">
+              {(() => {
+                const iv = data.interview;
+                const ev = iv?.evaluation;
+                const canInvite = manage && !c.do_not_contact && !['hired', 'declined', 'withdrawn'].includes(c.status);
+                return (
+                  <div className="space-y-3">
+                    {!iv ? (
+                      <p className="text-xs text-slate-400">
+                        Not invited yet. {data.plan_status === 'approved' ? `The campaign has ${data.plan_questions} approved questions.` : 'Approve the interview questions in the Interviews tab first.'}
+                      </p>
+                    ) : (
+                      <p className="text-xs text-slate-300">
+                        {INTERVIEW_STATUS[iv.status] || iv.status}
+                        {iv.score !== null && iv.score !== undefined ? ` · score ${iv.score}/100` : ''}
+                        {['invited', 'in_progress'].includes(iv.status) ? ` · link valid until ${when(iv.expires_at)}` : ''}
+                        {iv.completed_at ? ` · completed ${when(iv.completed_at)}` : ''}
+                        {iv.report_sent_at ? ` · report sent ${when(iv.report_sent_at)}` : ''}
+                      </p>
+                    )}
+                    {data.interview_messages?.length > 0 && (
+                      <details className="rounded-lg bg-white/[0.02] p-3 text-xs">
+                        <summary className="cursor-pointer text-slate-300">Transcript ({data.interview_messages.filter((x) => x.role === 'candidate').length} answers)</summary>
+                        <div className="mt-2 space-y-2">
+                          {data.interview_messages.map((msg, i) => (
+                            <p key={i} className={`whitespace-pre-line rounded-lg px-3 py-2 ${msg.role === 'candidate' ? 'ml-6 bg-sky-500/10 text-sky-50' : 'mr-6 bg-white/[0.04] text-slate-300'}`}>
+                              <span className="block text-[0.65rem] uppercase tracking-wide text-slate-500">{msg.role === 'candidate' ? 'Candidate' : msg.kind === 'followup' ? 'AI follow-up' : 'AI interviewer'}</span>
+                              {msg.content}
+                            </p>
+                          ))}
+                        </div>
+                      </details>
+                    )}
+                    {ev && (
+                      <div className="space-y-2 text-xs">
+                        {ev.overall && <p className="text-slate-200">{ev.overall}</p>}
+                        <ul className="space-y-1.5">
+                          {ev.questions.map((q, i) => (
+                            <li key={i} className="rounded-lg bg-white/[0.02] px-3 py-2">
+                              <p className="text-slate-300"><span className={CRITERION_TONE[q.status] || 'text-slate-300'}>{q.score}/100</span> · {q.question}</p>
+                              {q.explanation && <p className="mt-0.5 text-slate-400">{q.explanation}</p>}
+                              {q.evidence && <p className="mt-0.5 italic text-slate-500">“{q.evidence}”</p>}
+                            </li>
+                          ))}
+                        </ul>
+                        {ev.strengths?.length > 0 && <p className="text-emerald-200">Strengths: {ev.strengths.join('; ')}</p>}
+                        {ev.weaknesses?.length > 0 && <p className="text-amber-200">Weaknesses: {ev.weaknesses.join('; ')}</p>}
+                        {ev.unverified_claims_removed > 0 && <p className="text-slate-500">{ev.unverified_claims_removed} quote(s) could not be found in the answers and scored zero.</p>}
+                      </div>
+                    )}
+                    <div className="flex flex-wrap gap-2">
+                      {canInvite && data.plan_status === 'approved' && (
+                        <button type="button" className={ghostBtn} disabled={!!busy} onClick={() => act('invite', 'inviteToInterview', { candidate_id: c.id }, iv && ['invited', 'in_progress'].includes(iv.status) ? 'This cancels the current interview and prepares a new invitation. Continue?' : null)}>
+                          {busy === 'invite' ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageSquareText className="h-4 w-4" />} {iv ? 'Invite again' : 'Invite to written interview'}
+                        </button>
+                      )}
+                      {manage && iv && ['completed', 'evaluated'].includes(iv.status) && (
+                        <button type="button" className={ghostBtn} disabled={!!busy} onClick={() => act('ivscore', 'evaluateInterview', { candidate_id: c.id })}>
+                          {busy === 'ivscore' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />} {ev ? 'Re-score' : 'Score interview'}
+                        </button>
+                      )}
+                      <button type="button" className={ghostBtn} disabled={!!busy} onClick={downloadReport}>
+                        {busy === 'report' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} Download report
+                      </button>
+                      {manage && (
+                        <button type="button" className={ghostBtn} disabled={!!busy || !campaign.hiring_manager_email} title={campaign.hiring_manager_email ? '' : 'Add the hiring manager email in the campaign Settings'}
+                          onClick={() => act('hm', 'sendHiringReport', { candidate_id: c.id }, `Email this candidate’s evaluation report to ${campaign.hiring_manager_email}?`)}>
+                          {busy === 'hm' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Send to hiring manager
+                        </button>
+                      )}
+                    </div>
+                    {data.interview_messages?.length === 0 && iv?.status === 'invited' && drafts.some((d) => d.kind === 'interview_invite') && (
+                      <p className="text-[0.7rem] text-sky-200">The invitation is a draft below in Messages — approve and send it.</p>
+                    )}
+                  </div>
+                );
+              })()}
+            </Section>
+
             <Section title="Contact & consent">
               {c.contact ? (
                 <p className="text-sm text-slate-200">{[c.contact.email, c.contact.phone].filter(Boolean).join(' · ') || '—'}</p>
@@ -170,7 +263,7 @@ export default function CandidatePanel({ candidateId, onClose, onChanged }) {
                 </p>
               )}
               <ul className="mt-2 space-y-1 text-xs text-slate-400">
-                {['data_processing', 'share_with_company', 'contact'].map((k) => (
+                {['data_processing', 'share_with_company', 'contact', 'ai_interview'].map((k) => (
                   <li key={k}>
                     {k.replace(/_/g, ' ')}: {data.consents[k] ? `${data.consents[k].granted ? 'yes' : 'no'} (${data.consents[k].source}, ${when(data.consents[k].recorded_at)})` : 'not recorded'}
                   </li>

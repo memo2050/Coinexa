@@ -10,7 +10,9 @@ Branch `stage-2/build`. Built 24–25 Nov 2026.
    Pause, resume, close, edit.
 2. **Sourcing (lawful sources only)** — referrals and manual entry with recorded lawful basis; CSV import from the
    company's own database/ATS export (bad rows reported, never guessed); public application page per campaign with
-   consent and CV upload. LinkedIn and ATS connectors are listed as integration slots, not simulated.
+   consent and CV upload; bulk import of up to 5 PDF CVs at a time, which the AI reads (text copied verbatim,
+   fields only where the CV states them; unreadable files reported). ATS connectors are listed as an integration
+   slot, not simulated. LinkedIn is not used anywhere in the recruitment system.
 3. **AI evaluation** — per-requirement scores with quoted evidence; every quote is checked against the candidate's
    own text and unverifiable claims score zero; location, experience and pay fit by fixed rules; protected
    attributes excluded; transparent explanation stored and shown.
@@ -25,6 +27,17 @@ Branch `stage-2/build`. Built 24–25 Nov 2026.
    do-not-contact; availability and contact details; CV upload (PDF/Word, content-checked, 5 MB); consent
    (processing, sharing with the company, contact) with version, time and hashed IP; erase my data. Accepting states
    clearly that it is not an employment contract.
+6a. **Written AI interviews (text only, no voice)** — per campaign, the AI drafts job-related questions
+   (protected topics and pay wording are filtered out); a manager edits and approves them (at least 3, up to 12;
+   0–2 follow-ups per question; link valid 1–30 days). Inviting a candidate freezes the approved questions and
+   prepares an invitation draft the company approves before it is sent. In the portal the candidate gives explicit
+   consent to an AI-conducted interview, then answers in a chat; the AI asks a follow-up only when an answer is unclear,
+   within the cap. Candidate text is treated as data, never instructions. On completion the interview is scored per
+   question with quoted evidence (checked against the candidate's own answers; unverifiable quotes score zero),
+   strengths, weaknesses and an overall assessment. Hiring stays with the company.
+6b. **Candidate report & hiring manager** — per-candidate report (profile, skills, CV-based match, full interview
+   Q&A with scores and evidence, strengths/weaknesses, salary history, consent) downloadable as text or emailed to
+   the campaign's hiring manager (name and email in campaign settings).
 7. **Dashboard** — active campaigns, required, discovered, contacted, interested, negotiating, awaiting approval,
    agreed, hired, declined, completion; filters by country, city, specialization, campaign, experience, pay; refreshes
    every 15 s (campaign page every 10 s).
@@ -42,8 +55,8 @@ Branch `stage-2/build`. Built 24–25 Nov 2026.
 - Data minimisation, retention purge for closed campaigns, candidate self-erasure, permanent deletion by the company.
 
 ## Files
-- `supabase/migrations/20261125000007_recruitment.sql`
-- `supabase/functions/recruitment/index.ts`, `supabase/functions/_shared/recruitmentLogic.ts`
+- `supabase/migrations/20261125000007_recruitment.sql`, `20261125000008_recruitment_interviews.sql`
+- `supabase/functions/recruitment/index.ts`, `supabase/functions/recruitment/interviews.ts`, `supabase/functions/_shared/recruitmentLogic.ts`
 - `supabase/functions/_tests/recruitment_test.ts`, `supabase/tests/rls_test.sql` (checks 33–35)
 - `src/api/recruitment.js`, `src/components/recruitment/*`, `src/pages/recruitment/*`
 - modified: `src/App.jsx` (routes), `src/pages/Agents.jsx` (featured card), `supabase/config.toml`,
@@ -60,12 +73,12 @@ Branch `stage-2/build`. Built 24–25 Nov 2026.
 ## Needs credentials or approval
 - **Email to real candidates**: Resend's test sender delivers only to the account owner. Verify a sending domain
   (DNS records on coinexa.net or a subdomain) and set `EMAIL_FROM`. Staging deliberately redirects all mail to the owner.
-- **LinkedIn**: LinkedIn Talent Solutions partner approval (Recruiter System Connect). No scraping is used.
 - **ATS connectors** (Greenhouse/Lever/Workable): company API keys + connector build; CSV import works meanwhile.
 - **WhatsApp/SMS**: a WhatsApp Business or SMS provider account.
 
 ## Known limitations
-- AI evaluation reads the profile text and fields; uploaded CV files are stored for the company but not parsed.
+- PDF CVs are read by the AI (portal uploads and bulk import); Word CVs are stored but not read. Scanned image-only
+  PDFs may be reported as unreadable.
 - Evaluation and automatic contact run in batches of 5 per click (free-plan function time limits).
 - Progress updates by polling (10–15 s), not push.
 - Hiring is a manual confirmation by the company; no contracts are generated.

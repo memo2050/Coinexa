@@ -237,3 +237,50 @@ export const listFrom = (value: unknown, max = 30) =>
     .filter(Boolean)
     .slice(0, max)
     .map((item) => item.slice(0, 120));
+
+// --------------------------------------------------------- Text interviews --
+
+// What the interviewer does after a candidate answers. The order of core questions
+// is fixed by the approved plan; a follow-up is allowed only while this question
+// still has follow-ups left. Pure, so the flow can be tested without an AI.
+export function interviewNext(
+  state: { questionCount: number; currentIndex: number; followupsUsed: number; maxFollowups: number },
+  wantsFollowup: boolean
+): { type: 'followup' } | { type: 'question'; index: number } | { type: 'complete' } {
+  if (wantsFollowup && state.followupsUsed < state.maxFollowups) return { type: 'followup' };
+  const next = state.currentIndex + 1;
+  return next < state.questionCount ? { type: 'question', index: next } : { type: 'complete' };
+}
+
+// Interview questions must stay job-related. Anything touching protected traits,
+// or stating pay above the authorised maximum, is rejected (the caller then falls
+// back to the next approved question).
+const PROTECTED = [
+  /\bhow old\b/i, /\byour age\b/i, /\bage\b.*\?/i, /\bdate of birth\b/i, /\bborn\b/i,
+  /\bmarried\b/i, /\bmarital\b/i, /\bspouse\b/i, /\bchildren\b/i, /\bkids\b/i, /\bpregnan/i, /\bfamily plans?\b/i,
+  /\breligio/i, /\bpray/i, /\bchurch\b/i, /\bmosque\b/i,
+  /\bnationality\b/i, /\bethnic/i, /\brace\b/i, /\bwhere are you (originally )?from\b/i, /\bimmigration\b/i, /\bvisa status\b/i,
+  /\bdisabilit/i, /\bhealth\b/i, /\bmedical\b/i, /\billness\b/i,
+  /\bsexual/i, /\bgender\b/i, /\bunion member/i, /\bpolitic/i, /\bcriminal\b/i, /\barrest/i,
+];
+
+export function interviewTextAllowed(text: string, maxAmount: number): { ok: boolean; reason?: string } {
+  const value = String(text || '').trim();
+  if (value.length < 8) return { ok: false, reason: 'empty' };
+  if (value.length > 600) return { ok: false, reason: 'too long' };
+  if (PROTECTED.some((re) => re.test(value))) return { ok: false, reason: 'protected topic' };
+  if (!wordingWithinLimit(value, maxAmount)) return { ok: false, reason: 'amount above the authorised maximum' };
+  return { ok: true };
+}
+
+export function normaliseQuestions(list: unknown, max = 12) {
+  return (Array.isArray(list) ? list : [])
+    .map((q: any, i: number) => ({
+      id: String(q?.id || `q${i + 1}`).slice(0, 20),
+      question: String(q?.question || '').trim().slice(0, 600),
+      criterion: String(q?.criterion || '').trim().slice(0, 160),
+      strong_answer: String(q?.strong_answer || '').trim().slice(0, 600),
+    }))
+    .filter((q) => q.question.length >= 8)
+    .slice(0, max);
+}

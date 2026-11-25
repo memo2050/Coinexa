@@ -22,6 +22,7 @@ import {
   EMAIL_RE, encryptJson, decryptJson, newPortalToken, sha256, parseCsv, toCsv, listFrom,
   type NegotiationTerms, type Strategy,
 } from '../_shared/recruitmentLogic.ts';
+import * as iv from './interviews.ts';
 
 const db = () => service();
 const env = (name: string, fallback = '') => Deno.env.get(name) || fallback;
@@ -165,12 +166,13 @@ function integrations() {
     { key: 'manual', group: 'sourcing', name: 'Manual entry & referrals', status: 'available', detail: 'Add candidates your team or employees refer, with the lawful basis recorded.' },
     { key: 'csv', group: 'sourcing', name: 'Company candidate database (CSV import)', status: 'available', detail: 'Import an export from your own ATS or spreadsheet (up to 500 rows per file).' },
     { key: 'apply', group: 'sourcing', name: 'Public application page', status: 'available', detail: 'Share the campaign link; candidates apply with consent and upload a CV.' },
-    { key: 'linkedin', group: 'sourcing', name: 'LinkedIn', status: 'requires_approval', detail: 'Needs LinkedIn Talent Solutions partner access (Recruiter System Connect) for your company. Scraping or automating LinkedIn accounts is not used.' },
+    { key: 'cv_import', group: 'sourcing', name: 'CV files (PDF import)', status: 'available', detail: 'Upload up to 5 PDF CVs at a time; the agent reads each CV and creates the candidate from what it actually says.' },
     { key: 'ats', group: 'sourcing', name: 'ATS connectors (Greenhouse, Lever, Workable)', status: 'requires_credentials', detail: 'Adapter slot is ready; needs your ATS API key and a connector build. Use CSV import meanwhile.' },
     { key: 'email', group: 'communication', name: 'Email (Resend)', status: emailReady ? (ownDomain ? 'available' : 'limited') : 'requires_credentials',
       detail: !emailReady ? 'Add RESEND_API_KEY.' : ownDomain ? 'Sending from your verified domain.'
         : 'Test sender only: until a company domain is verified in Resend, mail is delivered only to the account owner (staging sends everything to the owner).' },
     { key: 'portal', group: 'communication', name: 'Candidate response portal', status: 'available', detail: 'Secure personal link per candidate: review, accept, counter, consent, CV upload, data deletion.' },
+    { key: 'interviews', group: 'communication', name: 'Written AI interviews', status: 'available', detail: 'Text-only interview in the candidate portal, from a question plan you approve; scored with quoted evidence and sent to your hiring manager.' },
     { key: 'whatsapp', group: 'communication', name: 'WhatsApp / SMS', status: 'requires_credentials', detail: 'Needs a WhatsApp Business or SMS provider account; not connected.' },
   ];
 }
@@ -191,7 +193,7 @@ function profileText(c: Row) {
     c.full_name, c.headline, c.specialization,
     c.experience_years !== null && c.experience_years !== undefined ? `${c.experience_years} years of experience` : '',
     c.country, c.city, (c.skills || []).join(', '), (c.certifications || []).join(', '), (c.languages || []).join(', '),
-    c.availability, c.profile_text,
+    c.availability, c.profile_text, c.cv_text ? `CV:\n${String(c.cv_text).slice(0, 6000)}` : '',
   ].filter(Boolean).join('\n');
 }
 
@@ -344,7 +346,10 @@ function campaignInput(body: Row, existing: Row | null = null) {
     outreach_mode: body.outreach_mode === 'auto' ? 'auto' : body.outreach_mode === 'approval' ? 'approval' : existing?.outreach_mode || 'approval',
     auto_contact_min_score: Math.round(num(body.auto_contact_min_score) ?? existing?.auto_contact_min_score ?? 70),
     retention_days: Math.round(num(body.retention_days) ?? existing?.retention_days ?? 180),
+    hiring_manager_name: pick('hiring_manager_name', 120),
+    hiring_manager_email: (body.hiring_manager_email !== undefined ? clean(body.hiring_manager_email, 160) : existing?.hiring_manager_email || '').toLowerCase(),
   };
+  if (data.hiring_manager_email && !EMAIL_RE.test(data.hiring_manager_email)) throw fail('Enter a valid hiring manager email.');
   if (!data.title) throw fail('Give the campaign a job title.');
   if (!data.country) throw fail('Choose the country.');
   if (!/^[A-Z]{3}$/.test(data.currency)) throw fail('Use a three-letter currency code such as USD or EGP.');
@@ -403,6 +408,13 @@ async function issuePortalLink(candidate: Row) {
   const expires = new Date(Date.now() + PORTAL_DAYS * 86400000).toISOString();
   await must(db().from('recruitment_candidates').update({ portal_token_hash: await sha256(token), portal_expires_at: expires }).eq('id', candidate.id));
   return `${appUrl()}/r/${token}`;
+}
+
+const deps: iv.Deps = { db, must, fail, event, invokeAI, fmtMoney };
+
+async function latestInterview(candidateId: string) {
+  return (await must(db().from('recruitment_interviews').select('*').eq('candidate_id', candidateId).neq('status', 'cancelled')
+    .order('created_date', { ascending: false }).limit(1).maybeSingle())) as Row | null;
 }
 
 // ===================================================== company: the actions ==
@@ -470,7 +482,14 @@ async function companyAction(req: Request, body: Row) {
     const rows = await must(db().from('recruitment_candidates').select('*').eq('campaign_id', campaign.id).order('score', { ascending: false, nullsFirst: false }).limit(1000)) as Row[];
     const events = await must(db().from('recruitment_events').select('*').eq('campaign_id', campaign.id).order('created_date', { ascending: false }).limit(60));
     const pendingDrafts = await must(db().from('recruitment_messages').select('id, candidate_id, kind, subject, created_date').eq('campaign_id', campaign.id).eq('status', 'draft'));
+    const interviews = await must(db().from('recruitment_interviews').select('id, candidate_id, status, score, expires_at, completed_at, report_sent_at, created_date')
+      .eq('campaign_id', campaign.id).neq('status', 'cancelled').order('created_date', { ascending: false })) as Row[];
+    const latestByCandidate: Row = {};
+    for (const i of interviews) if (!latestByCandidate[i.candidate_id]) latestByCandidate[i.candidate_id] = i;
+    const plan = await must(db().from('recruitment_interview_plans').select('*').eq('campaign_id', campaign.id).maybeSingle());
     return {
+      interviews: latestByCandidate,
+      plan,
       role, can_manage: manage,
       campaign: { ...campaign, apply_url: `${appUrl()}/apply/${campaign.apply_slug}` },
       counts: funnel(rows),
@@ -496,7 +515,11 @@ async function companyAction(req: Request, body: Row) {
       cvUrl = data?.signedUrl || null;
     }
     const { state } = await negotiationState(candidate.id, campaign);
+    const interview = await latestInterview(candidate.id);
+    const interviewMessages = interview ? await iv.transcript(deps, interview.id) : [];
+    const plan = await must(db().from('recruitment_interview_plans').select('status, questions').eq('campaign_id', campaign.id).maybeSingle()) as Row | null;
     return {
+      interview, interview_messages: interviewMessages, plan_status: plan?.status || 'none', plan_questions: plan?.questions?.length || 0,
       can_manage: manage, campaign, candidate: publicCandidate(candidate, { contact }), consents, messages, offers, events,
       cv_url: cvUrl, contact_restricted: !contactShareable(candidate, consents),
       negotiation: { ...state, ceiling: Math.max(Number(campaign.max_budget), state.approvedCeiling || 0) },
@@ -725,6 +748,7 @@ async function companyAction(req: Request, body: Row) {
         consent: consents.data_processing ? `${consents.data_processing.granted ? 'Data processing: yes' : 'Data processing: no'}; sharing: ${consents.share_with_company?.granted ? 'yes' : 'no'} (${consents.data_processing.recorded_at})`
           : `No portal consent (basis: ${c.lawful_basis.replace(/_/g, ' ')})`,
         score: c.score, explanation: c.score_explanation?.summary || '',
+        interview: await (async () => { const i = await latestInterview(c.id); return i ? `${i.status}${i.score !== null && i.score !== undefined ? ` ${i.score}/100` : ''}` : 'not invited'; })(),
       });
     }
     await audit(orgId, user, 'recruitment.report_downloaded', 'RecruitmentCampaign', campaign.id, `${out.length} rows`);
@@ -735,7 +759,7 @@ async function companyAction(req: Request, body: Row) {
       { key: 'cv', label: 'CV' }, { key: 'email', label: 'Email' }, { key: 'phone', label: 'Phone' },
       { key: 'expected', label: 'Expected compensation' }, { key: 'final', label: 'Final negotiated compensation' },
       { key: 'currency', label: 'Currency' }, { key: 'frequency', label: 'Pay frequency' }, { key: 'availability', label: 'Availability' },
-      { key: 'response', label: 'Candidate status' }, { key: 'consent', label: 'Consent' }, { key: 'score', label: 'AI match score' },
+      { key: 'response', label: 'Candidate status' }, { key: 'consent', label: 'Consent' }, { key: 'score', label: 'AI match score' }, { key: 'interview', label: 'Written interview' },
       { key: 'explanation', label: 'Match explanation' },
     ]);
     const summary = {
@@ -747,7 +771,152 @@ async function companyAction(req: Request, body: Row) {
     return { file_name: `coinexa-recruitment-${campaign.title.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.csv`, csv, rows: out, summary };
   }
 
+  if (action === 'getInterviewPlan') {
+    const campaign = await campaignFor(orgId, body.campaign_id);
+    const plan = await must(db().from('recruitment_interview_plans').select('*').eq('campaign_id', campaign.id).maybeSingle());
+    return { can_manage: manage, plan };
+  }
+
+  if (action === 'generateInterviewPlan') {
+    requireManage(manage);
+    const campaign = await campaignFor(orgId, body.campaign_id);
+    const count = Math.max(3, Math.min(12, Math.round(Number(body.count) || 8)));
+    const questions = await iv.generatePlan(deps, base44, campaign, count);
+    const row = await must(db().from('recruitment_interview_plans').upsert({
+      organization_id: orgId, campaign_id: campaign.id, questions, status: 'draft', approved_at: null, approved_by: null,
+      created_by_id: user.id, created_by: user.email,
+    }, { onConflict: 'campaign_id' }).select('*').single());
+    await event(orgId, 'interview.plan_drafted', `AI drafted ${questions.length} interview questions; waiting for approval.`, { campaign_id: campaign.id });
+    return { plan: row };
+  }
+
+  if (action === 'saveInterviewPlan') {
+    requireManage(manage);
+    const campaign = await campaignFor(orgId, body.campaign_id);
+    const plan = iv.validatePlan(deps, campaign, body);
+    const approve = body.approve === true;
+    if (approve && plan.questions.length < 3) throw fail('Approve at least 3 questions.');
+    const row = await must(db().from('recruitment_interview_plans').upsert({
+      organization_id: orgId, campaign_id: campaign.id, ...plan, status: approve ? 'approved' : 'draft',
+      approved_at: approve ? new Date().toISOString() : null, approved_by: approve ? user.email : null,
+      created_by_id: user.id, created_by: user.email,
+    }, { onConflict: 'campaign_id' }).select('*').single());
+    await event(orgId, approve ? 'interview.plan_approved' : 'interview.plan_saved', `Interview plan ${approve ? 'approved' : 'saved as draft'}: ${plan.questions.length} questions, up to ${plan.max_followups} follow-ups each, links valid ${plan.valid_days} days.`, { campaign_id: campaign.id });
+    if (approve) await audit(orgId, user, 'recruitment.interview_plan_approved', 'RecruitmentCampaign', campaign.id, `${plan.questions.length} questions`);
+    return { plan: row };
+  }
+
+  if (action === 'inviteToInterview') {
+    requireManage(manage);
+    const candidate = await candidateFor(orgId, body.candidate_id);
+    const campaign = await campaignFor(orgId, candidate.campaign_id);
+    if (campaign.status !== 'active') throw fail('The campaign is not active.', 409);
+    if (candidate.do_not_contact || candidate.erased_at || ['declined', 'withdrawn', 'hired'].includes(candidate.status)) throw fail('This candidate cannot be invited.', 409);
+    const plan = await must(db().from('recruitment_interview_plans').select('*').eq('campaign_id', campaign.id).maybeSingle()) as Row | null;
+    if (!plan || plan.status !== 'approved') throw fail('Approve the interview questions for this campaign first (Interviews tab).', 409);
+    await must(db().from('recruitment_interviews').update({ status: 'cancelled' }).eq('candidate_id', candidate.id).in('status', ['invited', 'in_progress']));
+    const interview = await must(db().from('recruitment_interviews').insert({
+      organization_id: orgId, campaign_id: campaign.id, candidate_id: candidate.id, questions: plan.questions, max_followups: plan.max_followups,
+      expires_at: new Date(Date.now() + plan.valid_days * 86400000).toISOString(), created_by_id: user.id, created_by: user.email,
+    }).select('*').single()) as Row;
+    const first = candidate.full_name.split(' ')[0];
+    const message = await must(db().from('recruitment_messages').insert({
+      organization_id: orgId, campaign_id: campaign.id, candidate_id: candidate.id, direction: 'out', channel: 'email', kind: 'interview_invite',
+      subject: `Written interview: ${campaign.title} with ${org.name}`,
+      body: `Hello ${first},\n\nThank you for your interest in the ${campaign.title} role at ${org.name}. The next step is a short written interview: ${plan.questions.length} questions about your experience, answered in a chat on your personal page. It is text only — no call or video — and you can take your time and come back while the link is valid (${plan.valid_days} days).\n\nStart the interview here:\n{{portal_link}}\n\nThe interview is conducted by an AI assistant; ${org.name}'s hiring manager reviews your answers and makes every decision. You can also decline or ask not to be contacted again on that page.\n\nKind regards,\n${org.name}`,
+      status: 'draft', created_by_id: user.id, created_by: user.email,
+    }).select('*').single());
+    await event(orgId, 'interview.invited', `Interview prepared for ${candidate.full_name}; invitation waiting for approval to send.`, { campaign_id: campaign.id, candidate_id: candidate.id });
+    return { interview, message };
+  }
+
+  if (action === 'evaluateInterview') {
+    requireManage(manage);
+    const candidate = await candidateFor(orgId, body.candidate_id);
+    const campaign = await campaignFor(orgId, candidate.campaign_id);
+    const interview = await latestInterview(candidate.id);
+    if (!interview || !['completed', 'evaluated'].includes(interview.status)) throw fail('The interview is not finished yet.', 409);
+    return await iv.evaluateInterview(deps, base44, interview, campaign, candidate);
+  }
+
+  if (action === 'candidateReport' || action === 'sendHiringReport') {
+    if (action === 'sendHiringReport') requireManage(manage);
+    const candidate = await candidateFor(orgId, body.candidate_id);
+    const campaign = await campaignFor(orgId, candidate.campaign_id);
+    const consents = await latestConsents(candidate.id);
+    const contact = manage && contactShareable(candidate, consents) ? await readContact(candidate) : null;
+    const interview = await latestInterview(candidate.id);
+    const messages = interview ? await iv.transcript(deps, interview.id) : [];
+    const offers = (await negotiationState(candidate.id, campaign)).offers;
+    const text = iv.buildReport(deps, { campaign, candidate, contact, consents, interview, messages, offers });
+    const fileName = `coinexa-candidate-${candidate.full_name.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.txt`;
+    if (action === 'candidateReport') {
+      await audit(orgId, user, 'recruitment.candidate_report', 'RecruitmentCandidate', candidate.id, 'viewed or downloaded');
+      return { text, file_name: fileName };
+    }
+    const to = clean(body.to, 160).toLowerCase() || campaign.hiring_manager_email;
+    if (!to || !EMAIL_RE.test(to)) throw fail('Add the hiring manager’s email in the campaign settings first.', 409);
+    const subject = `Candidate report: ${candidate.full_name} — ${campaign.title}`;
+    const { attempts } = await sendEmail(to, subject, `${campaign.hiring_manager_name ? `Hello ${campaign.hiring_manager_name},\n\n` : ''}${text}\n\nOpen the campaign in Coinexa: ${appUrl()}/recruitment/${campaign.id}`);
+    await must(db().from('recruitment_messages').insert({ organization_id: orgId, campaign_id: campaign.id, candidate_id: candidate.id, direction: 'out', channel: 'email',
+      kind: 'hiring_report', subject: `${subject} (to ${to})`, body: 'Candidate evaluation report sent to the hiring manager.', status: 'sent', attempts, sent_at: new Date().toISOString(),
+      created_by_id: user.id, created_by: user.email }));
+    if (interview) await must(db().from('recruitment_interviews').update({ report_sent_at: new Date().toISOString() }).eq('id', interview.id));
+    await event(orgId, 'report.sent', `Evaluation report for ${candidate.full_name} emailed to the hiring manager (${to}).`, { campaign_id: campaign.id, candidate_id: candidate.id });
+    await audit(orgId, user, 'recruitment.report_sent', 'RecruitmentCandidate', candidate.id, `to ${to}`);
+    return { ok: true, to };
+  }
+
   throw fail('Unknown action.');
+}
+
+// Company bulk import of CV files (multipart). Each PDF is stored privately, read by
+// the AI (text copied verbatim, fields only where the CV states them) and becomes a
+// candidate with source "cv_import". Nothing is guessed: unreadable files are reported.
+async function importCvFiles(req: Request, form: FormData) {
+  const { base44, user, org, manage } = await companyContext(req);
+  requireManage(manage);
+  const orgId = org.id as string;
+  const campaign = await campaignFor(orgId, String(form.get('campaign_id') || ''));
+  const files = form.getAll('files').filter((f): f is File => f instanceof File);
+  if (!files.length) throw fail('Choose at least one PDF.');
+  if (files.length > 5) throw fail('Import up to 5 CVs at a time.');
+  const results = { added: [] as string[], skipped: [] as string[] };
+  for (const file of files) {
+    try {
+      if (file.size > 5 * 1024 * 1024) throw new Error('larger than 5 MB');
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      if (!file.name.toLowerCase().endsWith('.pdf') || String.fromCharCode(...bytes.slice(0, 4)) !== '%PDF') throw new Error('not a PDF');
+      const path = `recruitment/${orgId}/imports/${crypto.randomUUID()}.pdf`;
+      const { error } = await db().storage.from('private').upload(path, bytes, { contentType: 'application/pdf', upsert: false });
+      if (error) throw new Error(error.message);
+      const { data: signed } = await db().storage.from('private').createSignedUrl(path, 600);
+      let cv;
+      try {
+        cv = await iv.readCv(deps, base44, signed?.signedUrl || '');
+      } catch (error) {
+        await db().storage.from('private').remove([path]);
+        throw error;
+      }
+      if (!cv.full_name || cv.cv_text.length < 40) {
+        await db().storage.from('private').remove([path]);
+        throw new Error('no readable name or text (scanned image?)');
+      }
+      const contact = await writeContact({ email: EMAIL_RE.test(cv.email) ? cv.email : '', phone: cv.phone });
+      const row = await must(db().from('recruitment_candidates').insert({
+        organization_id: orgId, campaign_id: campaign.id, full_name: cv.full_name, headline: cv.headline, country: cv.country, city: cv.city,
+        experience_years: cv.experience_years, skills: cv.skills, certifications: cv.certifications, languages: cv.languages,
+        cv_text: cv.cv_text, cv_path: path, ...contact, source: 'cv_import', lawful_basis: 'legitimate_interest', source_detail: clean(file.name, 120),
+        created_by_id: user.id, created_by: user.email,
+      }).select('id, full_name').single()) as Row;
+      results.added.push(row.full_name);
+    } catch (error) {
+      results.skipped.push(`${file.name}: ${(error as Error).message}`);
+    }
+  }
+  await event(orgId, 'candidate.cv_imported', `${results.added.length} candidates created from CV files${results.skipped.length ? `; ${results.skipped.length} skipped` : ''}.`, { campaign_id: campaign.id, level: results.skipped.length ? 'warning' : 'info' });
+  await audit(orgId, user, 'recruitment.cv_import', 'RecruitmentCampaign', campaign.id, `${results.added.length} added`);
+  return results;
 }
 
 // Outreach wording: written by the AI from the real campaign details, then checked so
@@ -813,11 +982,11 @@ async function deliver(orgId: string, user: Row, message: Row, subject: string, 
     await must(db().from('recruitment_messages').update({ status: 'sent', subject, body: text, attempts, sent_at: new Date().toISOString(), error: null }).eq('id', message.id));
     const nextStatus = ['sourced', 'evaluated'].includes(candidate.status) ? 'contacted' : candidate.status;
     await must(db().from('recruitment_candidates').update({ status: nextStatus, last_contacted_at: new Date().toISOString() }).eq('id', candidate.id));
-    if (!(await must(db().from('recruitment_offers').select('id').eq('candidate_id', candidate.id).limit(1)) as Row[]).length) {
+    if (message.kind !== 'interview_invite' && !(await must(db().from('recruitment_offers').select('id').eq('candidate_id', candidate.id).limit(1)) as Row[]).length) {
       await must(db().from('recruitment_offers').insert({ organization_id: orgId, campaign_id: campaign.id, candidate_id: candidate.id, round: 0,
         party: 'company', amount: Number(campaign.initial_offer), currency: campaign.currency, pay_frequency: campaign.pay_frequency, outcome: 'offer', note: 'Opening offer in outreach.' }));
     }
-    await event(orgId, 'message.sent', `${message.kind === 'follow_up' ? 'Follow-up' : 'Outreach'} emailed to ${candidate.full_name}${attempts > 1 ? ` after ${attempts} attempts` : ''} (approved by ${user.email}).`, { campaign_id: campaign.id, candidate_id: candidate.id });
+    await event(orgId, 'message.sent', `${message.kind === 'follow_up' ? 'Follow-up' : message.kind === 'interview_invite' ? 'Interview invitation' : 'Outreach'} emailed to ${candidate.full_name}${attempts > 1 ? ` after ${attempts} attempts` : ''} (approved by ${user.email}).`, { campaign_id: campaign.id, candidate_id: candidate.id });
     return { ok: true, attempts };
   } catch (error) {
     const err = error as Error & { attempts?: number };
@@ -844,7 +1013,7 @@ async function ipHash(req: Request) {
 }
 
 async function recordConsents(orgId: string, candidateId: string, consents: Row, source: 'portal' | 'application', ip: string) {
-  const rows = (['data_processing', 'share_with_company', 'contact'] as const)
+  const rows = (['data_processing', 'share_with_company', 'contact', 'ai_interview'] as const)
     .filter((kind) => typeof consents?.[kind] === 'boolean')
     .map((kind) => ({ organization_id: orgId, candidate_id: candidateId, kind, granted: consents[kind], text_version: CONSENT_VERSION, source, ip_hash: ip }));
   if (rows.length) await must(db().from('recruitment_consents').insert(rows));
@@ -878,6 +1047,12 @@ async function portalView(candidate: Row) {
     consents: Object.fromEntries(Object.entries(consents).map(([k, v]) => [k, { granted: v.granted, at: v.recorded_at }])),
     consent_version: CONSENT_VERSION,
     notice: 'Accepting here confirms your interest and the agreed rate. It is not an employment contract; any contract is issued separately by the company.',
+    interview: await (async () => {
+      const i = await latestInterview(candidate.id);
+      if (!i) return null;
+      const expired = ['invited', 'in_progress'].includes(i.status) && new Date(i.expires_at).getTime() < Date.now();
+      return { status: expired ? 'expired' : i.status, expires_at: i.expires_at, questions: i.questions.length, current: i.current_index + 1 };
+    })(),
   };
 }
 
@@ -977,6 +1152,58 @@ async function publicAction(req: Request, body: Row) {
     return { erased: true };
   }
 
+  if (action.startsWith('portal_interview_')) {
+    const candidate = await candidateByToken(body.token);
+    const interview = await latestInterview(candidate.id);
+    if (!interview) throw fail('There is no interview for you yet.', 404);
+    const campaign = await must(db().from('recruitment_campaigns').select('*').eq('id', candidate.campaign_id).single()) as Row;
+    const open = ['invited', 'in_progress'].includes(interview.status);
+    if (open && new Date(interview.expires_at).getTime() < Date.now()) {
+      await must(db().from('recruitment_interviews').update({ status: 'expired' }).eq('id', interview.id));
+      throw fail('This interview link has expired. Ask the company to invite you again.', 410);
+    }
+    const view = async () => {
+      const fresh = await latestInterview(candidate.id) as Row;
+      const msgs = await iv.transcript(deps, fresh.id);
+      return { status: fresh.status, questions: fresh.questions.length, current: fresh.current_index + 1, expires_at: fresh.expires_at,
+        messages: msgs.map((m) => ({ role: m.role, kind: m.kind, content: m.content, at: m.created_date })) };
+    };
+    if (action === 'portal_interview_get') return await view();
+
+    if (action === 'portal_interview_start') {
+      if (interview.status !== 'invited') return await view();
+      if (body.consents?.ai_interview !== true) throw fail('Please confirm that you agree to a written interview conducted by an AI assistant.');
+      const known = await latestConsents(candidate.id);
+      if (!(known.data_processing?.granted || body.consents?.data_processing === true)) throw fail('Please also agree to the processing of your information.');
+      await recordConsents(candidate.organization_id, candidate.id, body.consents, 'portal', await ipHash(req));
+      const org = await must(db().from('organizations').select('name').eq('id', candidate.organization_id).single()) as Row;
+      await must(db().from('recruitment_interviews').update({ status: 'in_progress', started_at: new Date().toISOString() }).eq('id', interview.id));
+      await iv.startInterview(deps, interview, org.name, candidate.full_name.split(' ')[0]);
+      await event(candidate.organization_id, 'interview.started', `${candidate.full_name} started the written interview.`, { campaign_id: campaign.id, candidate_id: candidate.id });
+      return await view();
+    }
+
+    if (action === 'portal_interview_answer') {
+      if (interview.status !== 'in_progress') throw fail('This interview is not in progress.', 409);
+      const text = clean(body.text, 3000);
+      if (text.length < 2) throw fail('Write your answer first.');
+      const msgs = await iv.transcript(deps, interview.id);
+      if (msgs.at(-1)?.role !== 'agent') throw fail('Your previous answer is still being processed.', 409);
+      const base44 = createClientFromRequest(req);
+      const { done } = await iv.answer(deps, base44, interview, campaign, text);
+      if (done) {
+        await event(candidate.organization_id, 'interview.completed', `${candidate.full_name} completed the written interview.`, { campaign_id: campaign.id, candidate_id: candidate.id });
+        try {
+          await iv.evaluateInterview(deps, base44, { ...interview, status: 'completed' }, campaign, candidate);
+        } catch (error) {
+          await event(candidate.organization_id, 'interview.evaluation_failed', `Scoring ${candidate.full_name}'s interview failed: ${(error as Error).message}. It can be retried from the candidate panel.`, { campaign_id: campaign.id, candidate_id: candidate.id, level: 'error' });
+        }
+      }
+      return await view();
+    }
+    throw fail('Unknown action.');
+  }
+
   if (action === 'apply_get') {
     const campaign = await must(db().from('recruitment_campaigns').select('*').eq('apply_slug', clean(body.slug, 40)).maybeSingle()) as Row;
     if (!campaign || campaign.status !== 'active') throw fail('This position is not open for applications.', 404);
@@ -1010,8 +1237,7 @@ async function publicAction(req: Request, body: Row) {
 }
 
 // CV upload (multipart): portal token or application follow-up, PDF/DOC/DOCX up to 5 MB.
-async function uploadCv(req: Request) {
-  const form = await req.formData();
+async function uploadCv(req: Request, form: FormData) {
   const candidate = await candidateByToken(String(form.get('token') || ''));
   if ((await latestConsents(candidate.id)).data_processing?.granted !== true) {
     throw fail('Please agree to the processing of your information before uploading a CV.');
@@ -1029,7 +1255,18 @@ async function uploadCv(req: Request) {
   const { error } = await db().storage.from('private').upload(path, bytes, { contentType: types[ext], upsert: false });
   if (error) throw fail(error.message, 500);
   if (candidate.cv_path) await db().storage.from('private').remove([candidate.cv_path]);
-  await must(db().from('recruitment_candidates').update({ cv_path: path }).eq('id', candidate.id));
+  let cvText: string | null = null;
+  if (ext === 'pdf') {
+    // Best effort: the company's AI evaluation reads the CV text; a failure here only means it reads the profile alone.
+    try {
+      const { data: signed } = await db().storage.from('private').createSignedUrl(path, 600);
+      const cv = await iv.readCv(deps, createClientFromRequest(req), signed?.signedUrl || '');
+      cvText = cv.cv_text || null;
+    } catch (error) {
+      console.error('recruitment: CV text extraction failed', (error as Error).message);
+    }
+  }
+  await must(db().from('recruitment_candidates').update({ cv_path: path, cv_text: cvText }).eq('id', candidate.id));
   await event(candidate.organization_id, 'candidate.cv_uploaded', `${candidate.full_name} uploaded a CV.`, { campaign_id: candidate.campaign_id, candidate_id: candidate.id });
   return { ok: true };
 }
@@ -1037,7 +1274,8 @@ async function uploadCv(req: Request) {
 serveBase44('recruitment', async (req: Request) => {
   try {
     if ((req.headers.get('content-type') || '').startsWith('multipart/form-data')) {
-      return Response.json(await uploadCv(req));
+      const form = await req.formData();
+      return Response.json(form.get('mode') === 'import' ? await importCvFiles(req, form) : await uploadCv(req, form));
     }
     const body = await req.json().catch(() => ({}));
     const action = clean(body.action, 40);

@@ -358,6 +358,26 @@ async function portalLinkFor(candidateId) {
 }
 const R = (token, body) => call(token, 'recruitment', body);
 
+// Minimal valid single-page text PDF (for the CV import check).
+function makePdf(lines) {
+  const esc = (t) => t.replace(/[\\()]/g, (c) => `\\${c}`);
+  const stream = `BT /F1 12 Tf 72 740 Td 16 TL ${lines.map((l) => `(${esc(l)}) '`).join(' ')} ET`;
+  const objs = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>',
+    `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`,
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+  ];
+  let out = '%PDF-1.4\n';
+  const offsets = [];
+  objs.forEach((o, i) => { offsets.push(out.length); out += `${i + 1} 0 obj\n${o}\nendobj\n`; });
+  const xref = out.length;
+  out += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n${offsets.map((o) => `${String(o).padStart(10, '0')} 00000 n \n`).join('')}`;
+  out += `trailer\n<< /Size ${objs.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
+  return new TextEncoder().encode(out);
+}
+
 async function recruitmentChecks(A, B) {
   let campaign;
   await check('recruitment', 'campaign with the initial offer above the maximum is refused', async () => {
@@ -527,6 +547,103 @@ async function recruitmentChecks(A, B) {
     return ok ? `${r.data.rows.length} rows; ${JSON.stringify(r.data.summary)}` : JSON.stringify(stages);
   });
 
+  // ---------------------------------------------------- written interviews (text only) --
+  let lina, linaToken;
+  const QUESTIONS = [
+    { question: 'Describe how you would troubleshoot a Windows 10 laptop that cannot reach the network.', criterion: 'Windows troubleshooting', strong_answer: 'Checks cable/Wi-Fi, ipconfig, DHCP, DNS in order' },
+    { question: 'A user cannot open Outlook after an Office update. What do you check first?', criterion: 'Microsoft Office support', strong_answer: 'Safe mode, profile, repair' },
+    { question: 'Explain what DHCP does and how you would spot a DHCP problem.', criterion: 'Basic networking', strong_answer: 'Address assignment; APIPA 169.254 addresses' },
+  ];
+  await check('interviews', 'inviting before an approved question plan is refused', async () => {
+    const add = await R(A.token, { action: 'addCandidate', campaign_id: campaign.id, source: 'referral', lawful_basis: 'legitimate_interest',
+      candidate: { full_name: 'Lina Test', headline: 'Help desk technician', country: 'Egypt', city: 'Cairo', experience_years: 2,
+        skills: 'Windows, Office 365, DHCP', profile_text: 'Help desk technician with two years of Windows and Office 365 support.', contact: { email: `e2e-lina-${runId}@example.com` } } });
+    if (add.status !== 200) throw new Error(`add ${add.status} ${JSON.stringify(add.data).slice(0, 200)}`);
+    lina = add.data.candidate;
+    const r = await R(A.token, { action: 'inviteToInterview', candidate_id: lina.id });
+    return r.status === 409 ? true : `status ${r.status}`;
+  });
+  await check('interviews', 'questions about protected characteristics are refused', async () => {
+    const r = await R(A.token, { action: 'saveInterviewPlan', campaign_id: campaign.id, approve: true,
+      questions: [...QUESTIONS, { question: 'Are you married and do you plan to have children soon?', criterion: 'availability' }] });
+    return r.status === 400 ? true : `status ${r.status}`;
+  });
+  await check('interviews', 'another company cannot read or change the plan', async () => {
+    const g = await R(B.token, { action: 'getInterviewPlan', campaign_id: campaign.id });
+    const s = await R(B.token, { action: 'saveInterviewPlan', campaign_id: campaign.id, questions: QUESTIONS, approve: true });
+    return g.status === 404 && s.status === 404 ? true : `${g.status}/${s.status}`;
+  });
+  await check('interviews', 'manager approves a 3-question plan (no follow-ups for the scripted run)', async () => {
+    const r = await R(A.token, { action: 'saveInterviewPlan', campaign_id: campaign.id, questions: QUESTIONS, max_followups: 0, valid_days: 7, approve: true });
+    return r.status === 200 && r.data.plan.status === 'approved' && r.data.plan.questions.length === 3 ? true : `${r.status} ${JSON.stringify(r.data).slice(0, 200)}`;
+  });
+  let interviewId;
+  await check('interviews', 'invite freezes the questions and prepares an invitation draft with the portal link', async () => {
+    const r = await R(A.token, { action: 'inviteToInterview', candidate_id: lina.id });
+    if (r.status !== 200) throw new Error(`${r.status} ${JSON.stringify(r.data).slice(0, 200)}`);
+    interviewId = r.data.interview.id;
+    const ok = r.data.interview.status === 'invited' && r.data.message.status === 'draft' && r.data.message.body.includes('{{portal_link}}') && !/voice|phone call/i.test(r.data.message.body.replace('no call or video', ''));
+    return ok ? true : JSON.stringify(r.data).slice(0, 300);
+  });
+  await check('interviews', 'another company cannot invite, read the interview or download the report', async () => {
+    const i = await R(B.token, { action: 'inviteToInterview', candidate_id: lina.id });
+    const g = await R(B.token, { action: 'getCandidate', candidate_id: lina.id });
+    const rep = await R(B.token, { action: 'candidateReport', candidate_id: lina.id });
+    const hm = await R(B.token, { action: 'sendHiringReport', candidate_id: lina.id });
+    return [i, g, rep, hm].every((x) => x.status === 404) ? true : [i, g, rep, hm].map((x) => x.status).join('/');
+  });
+  await check('interviews', 'portal: interview needs explicit consent to an AI-conducted interview', async () => {
+    linaToken = await portalLinkFor(lina.id);
+    const v = await R(null, { action: 'portal_get', token: linaToken });
+    const r = await R(null, { action: 'portal_interview_start', token: linaToken, consents: { data_processing: true } });
+    return v.data.interview?.status === 'invited' && r.status === 400 ? true : `${v.data.interview?.status} ${r.status}`;
+  });
+  await check('interviews', 'portal: another candidate’s link cannot reach this interview', async () => {
+    const t = await portalLinkFor(omar.id);
+    const r = await R(null, { action: 'portal_interview_get', token: t });
+    const bad = await R(null, { action: 'portal_interview_get', token: 'y'.repeat(43) });
+    return r.status === 404 && bad.status === 404 ? true : `${r.status}/${bad.status}`;
+  });
+  await check('interviews', 'portal: start shows an introduction and question 1; answers move through the questions', async () => {
+    const s = await R(null, { action: 'portal_interview_start', token: linaToken, consents: { ai_interview: true, data_processing: true } });
+    if (s.status !== 200) throw new Error(`start ${s.status} ${JSON.stringify(s.data).slice(0, 200)}`);
+    const a = await R(null, { action: 'portal_interview_answer', token: linaToken, text: 'I check the Wi-Fi or cable, run ipconfig to see if I got a 169.254 address, renew DHCP, then test DNS with nslookup.' });
+    const b = await R(null, { action: 'portal_interview_answer', token: linaToken, text: 'Start Outlook in safe mode, then repair Office and recreate the mail profile if needed.' });
+    const kinds = b.data.messages.map((m) => m.kind).join(',');
+    return s.data.status === 'in_progress' && b.status === 200 && b.data.current === 3 && kinds === 'intro,question,answer,question,answer,question' ? kinds : `${b.status} ${kinds}`;
+  });
+  await check('interviews', 'portal: empty answers are refused; consent recorded with the AI-interview kind', async () => {
+    const e = await R(null, { action: 'portal_interview_answer', token: linaToken, text: ' ' });
+    const { data } = await admin.from('recruitment_consents').select('kind, granted').eq('candidate_id', lina.id).eq('kind', 'ai_interview');
+    return e.status === 400 && data.length === 1 && data[0].granted ? true : `${e.status} ${JSON.stringify(data)}`;
+  });
+  await check('interviews', 'company sees the transcript; candidate report includes questions and answers', async () => {
+    const g = await R(A.token, { action: 'getCandidate', candidate_id: lina.id });
+    const rep = await R(A.token, { action: 'candidateReport', candidate_id: lina.id });
+    const ok = g.data.interview?.status === 'in_progress' && g.data.interview_messages.length === 6 && rep.status === 200
+      && rep.data.text.includes('Q1. Describe how you would troubleshoot') && rep.data.text.includes('ipconfig') && rep.data.text.includes('hiring decision belongs to the company');
+    return ok ? `${rep.data.text.split('\n').length} report lines` : `${g.data.interview?.status} ${g.data.interview_messages?.length} ${rep.status}`;
+  });
+  await check('interviews', 'expired interview link is refused', async () => {
+    await admin.from('recruitment_interviews').update({ expires_at: new Date(Date.now() - 60000).toISOString() }).eq('id', interviewId);
+    const r = await R(null, { action: 'portal_interview_answer', token: linaToken, text: 'Late answer about DHCP.' });
+    const { data } = await admin.from('recruitment_interviews').select('status').eq('id', interviewId).single();
+    return r.status === 410 && data.status === 'expired' ? true : `${r.status} ${data.status}`;
+  });
+  await check('interviews', 'hiring report needs the hiring manager email; then it is sent and recorded', async () => {
+    const none = await R(A.token, { action: 'sendHiringReport', candidate_id: lina.id });
+    const bad = await R(A.token, { action: 'updateCampaign', campaign_id: campaign.id, campaign: { hiring_manager_email: 'not-an-email' } });
+    await R(A.token, { action: 'updateCampaign', campaign_id: campaign.id, campaign: { hiring_manager_name: 'E2E Manager', hiring_manager_email: `e2e-hm-${runId}@example.com` } });
+    const sent = await R(A.token, { action: 'sendHiringReport', candidate_id: lina.id });
+    const { data } = await admin.from('recruitment_messages').select('kind, status').eq('candidate_id', lina.id).eq('kind', 'hiring_report');
+    return none.status === 409 && bad.status === 400 && sent.status === 200 && data.length === 1 && data[0].status === 'sent' ? true : `${none.status}/${bad.status}/${sent.status} ${JSON.stringify(data)}`;
+  });
+  await check('interviews', 'LinkedIn is not offered anywhere; CV import and written interviews are', async () => {
+    const r = await R(A.token, { action: 'overview' });
+    const keys = (r.data.integrations || []).map((i) => i.key);
+    return !JSON.stringify(r.data).toLowerCase().includes('linkedin') && keys.includes('cv_import') && keys.includes('interviews') ? keys.join(', ') : JSON.stringify(keys);
+  });
+
   if (RUN_AI) {
     await check('recruitment-ai', 'AI evaluation: score with verified evidence for each requirement', async () => {
       const r = await R(A.token, { action: 'evaluate', campaign_id: campaign.id, candidate_id: mona.id });
@@ -544,6 +661,45 @@ async function recruitmentChecks(A, B) {
       if (s.status !== 200) throw new Error(`send ${s.status} ${JSON.stringify(s.data).slice(0, 200)}`);
       const { data } = await admin.from('recruitment_messages').select('status, attempts, body').eq('id', d.data.message.id).single();
       return `${data.status} after ${data.attempts} attempt(s); draft ${d.data.message.body.length} chars`;
+    });
+    await check('interviews-ai', 'AI drafts job-related interview questions (a draft until approved)', async () => {
+      const r = await R(A.token, { action: 'generateInterviewPlan', campaign_id: campaign.id, count: 4 });
+      if (r.status !== 200) throw new Error(`${r.status} ${JSON.stringify(r.data).slice(0, 200)}`);
+      return r.data.plan.status === 'draft' && r.data.plan.questions.length >= 3 ? `${r.data.plan.questions.length}: ${r.data.plan.questions[0].question.slice(0, 80)}` : JSON.stringify(r.data.plan).slice(0, 200);
+    });
+    await check('interviews-ai', 'full written interview with AI follow-ups (capped at 2 per question) and evidence-checked scoring', async () => {
+      await R(A.token, { action: 'saveInterviewPlan', campaign_id: campaign.id, questions: QUESTIONS, max_followups: 2, valid_days: 7, approve: true });
+      const inv = await R(A.token, { action: 'inviteToInterview', candidate_id: lina.id });
+      if (inv.status !== 200) throw new Error(`invite ${inv.status} ${JSON.stringify(inv.data).slice(0, 200)}`);
+      const t = await portalLinkFor(lina.id);
+      let v = (await R(null, { action: 'portal_interview_start', token: t, consents: { ai_interview: true } })).data;
+      let turns = 0;
+      while (v.status === 'in_progress' && turns < 12) {
+        turns += 1;
+        const r = await R(null, { action: 'portal_interview_answer', token: t, text: turns % 2 ? 'Not sure.' : 'I would check ipconfig for a 169.254 address, renew the DHCP lease and test DNS with nslookup; for Outlook I use safe mode and repair Office.' });
+        if (r.status !== 200) throw new Error(`answer ${r.status} ${JSON.stringify(r.data).slice(0, 200)}`);
+        v = r.data;
+      }
+      const { data: msgs } = await admin.from('recruitment_interview_messages').select('kind, question_index').eq('interview_id', inv.data.interview.id);
+      const perQ = [0, 1, 2].map((i) => msgs.filter((m) => m.kind === 'followup' && m.question_index === i).length);
+      const { data: iv } = await admin.from('recruitment_interviews').select('status, score, evaluation').eq('id', inv.data.interview.id).single();
+      if (perQ.some((n) => n > 2)) throw new Error(`follow-ups over cap: ${perQ}`);
+      if (iv.status !== 'evaluated') throw new Error(`status ${iv.status}`);
+      return `${turns} answers, follow-ups per question ${perQ.join('/')}, score ${iv.score}/100, ${iv.evaluation.questions.length} scored, ${iv.evaluation.unverified_claims_removed} unverifiable quotes removed`;
+    });
+    await check('interviews-ai', 'company imports a PDF CV; the AI reads it and creates the candidate from its contents', async () => {
+      const form = new FormData();
+      form.append('mode', 'import');
+      form.append('campaign_id', campaign.id);
+      form.append('files', new Blob([makePdf(['Karim Test', `karim-${runId}@example.com`, 'Cairo, Egypt', 'IT Support Specialist - 3 years', 'Skills: Windows 11, Active Directory, Office 365, DHCP', 'Languages: Arabic, English'])], { type: 'application/pdf' }), 'karim.pdf');
+      form.append('files', new Blob([new TextEncoder().encode('not a pdf at all')]), 'fake.pdf');
+      const res = await fetch(`${URL_}/functions/v1/recruitment`, { method: 'POST', headers: { apikey: ANON, Authorization: `Bearer ${A.token}` }, body: form });
+      const data = await res.json();
+      if (res.status !== 200) throw new Error(`${res.status} ${JSON.stringify(data).slice(0, 200)}`);
+      const { data: row } = await admin.from('recruitment_candidates').select('full_name, source, skills, cv_text, contact_enc').eq('campaign_id', campaign.id).eq('source', 'cv_import').maybeSingle();
+      const ok = data.added.length === 1 && data.skipped.length === 1 && row && /karim/i.test(row.full_name) && /active directory/i.test(row.cv_text) && row.contact_enc?.startsWith('v1:');
+      const forbidden = await fetch(`${URL_}/functions/v1/recruitment`, { method: 'POST', headers: { apikey: ANON, Authorization: `Bearer ${B.token}` }, body: (() => { const f = new FormData(); f.append('mode', 'import'); f.append('campaign_id', campaign.id); f.append('files', new Blob([makePdf(['X'])]), 'x.pdf'); return f; })() });
+      return ok && forbidden.status === 404 ? `added ${row.full_name}; skipped: ${data.skipped.join('; ')}` : JSON.stringify({ data, row: row && { ...row, cv_text: row.cv_text?.slice(0, 80) }, forbidden: forbidden.status });
     });
   }
 }
