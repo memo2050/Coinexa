@@ -116,13 +116,19 @@ async function action(req: Request, body: Row) {
     }
 
     // First hire: Stripe Checkout. The hire is recorded when Stripe confirms payment.
+    // A stored customer is reused only if it still exists in this Stripe account.
+    let customer: string | null = org.stripe_customer_id || null;
+    if (customer) {
+      const found = await s.get(`/customers/${customer}`).catch(() => null);
+      if (!found || found.deleted) customer = null;
+    }
     const session = await s.post('/checkout/sessions', {
       mode: 'subscription',
       'line_items[0][price]': price.id, 'line_items[0][quantity]': 1,
       success_url: `${appUrl()}/billing/success?hire=1&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${appUrl()}/agents?hire=cancelled`,
       client_reference_id: orgId,
-      ...(org.stripe_customer_id ? { customer: org.stripe_customer_id } : { customer_email: user.email }),
+      ...(customer ? { customer } : { customer_email: user.email }),
       metadata: { kind: HIRE_KIND, organization_id: orgId, first_subject: target.subject, first_plan: plan.key },
       subscription_data: { metadata: { kind: HIRE_KIND, organization_id: orgId, first_subject: target.subject, first_plan: plan.key } },
     });

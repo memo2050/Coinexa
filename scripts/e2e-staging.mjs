@@ -479,8 +479,8 @@ async function stripeChecks(A, orgA) {
       const price = (await stripeApi('GET', '/prices?lookup_keys[]=coinexa_agent_crm_v1&active=true')).data[0];
       if (!price) throw new Error('crm test price missing: run the Stripe test setup');
       const customer = await stripeApi('POST', '/customers', { email: A.email, 'metadata[e2e]': runId });
-      await stripeApi('POST', `/payment_methods/pm_card_visa/attach`, { customer: customer.id });
-      await stripeApi('POST', `/customers/${customer.id}`, { 'invoice_settings[default_payment_method]': 'pm_card_visa' });
+      const card = await stripeApi('POST', `/payment_methods/pm_card_visa/attach`, { customer: customer.id });
+      await stripeApi('POST', `/customers/${customer.id}`, { 'invoice_settings[default_payment_method]': card.id });
       await admin.from('organizations').update({ stripe_customer_id: customer.id }).eq('id', orgA);
       sub = await stripeApi('POST', '/subscriptions', { customer: customer.id, 'items[0][price]': price.id, 'metadata[kind]': 'agent_hires', 'metadata[organization_id]': orgA, 'metadata[first_subject]': crm.id, 'metadata[first_plan]': 'crm' });
       const hire = await waitFor(async () => (await admin.from('agent_hires').select('*').eq('organization_id', orgA).eq('subject', crm.id).maybeSingle()).data);
@@ -546,7 +546,7 @@ async function hiredChecks(A, B, orgA, orgB) {
   await check('hired', 'cancelled subscription or suspended workspace removes Hired', async () => {
     await admin.from('organizations').update({ status: 'suspended' }).eq('id', orgA);
     const suspended = (await hiredOf(A))[orgA];
-    await admin.from('organizations').update({ status: 'active', stripe_subscription_id: '' }).eq('id', orgA);
+    await admin.from('organizations').update({ status: 'active', stripe_subscription_id: '', stripe_customer_id: null }).eq('id', orgA);
     const cancelled = (await hiredOf(A))[orgA];
     return suspended === false && cancelled === false ? true : { fail: JSON.stringify({ suspended, cancelled }) };
   });
