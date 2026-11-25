@@ -46,9 +46,9 @@ modified `src/App.jsx`, `src/pages/Agents.jsx`, `supabase/config.toml`, `.github
 ## Phase 2 (25 Nov 2026): Windows Network Scanner — DONE, tested, published to staging
 
 Download (staging only): https://forward-darkblue-rook-76.hostingersite.com/downloads/coinexa-network-scanner-staging.exe
-(also linked on the Network security page with version and SHA-256). Version 0.2.0-staging.5,
-6.3 MB, SHA-256 `f60ecc2ecf2de88dba0013577feb53ec36fd01368b2dc22bfd8ac36cb3c5e9a8`. Not code-signed (by decision).
-Each build is published only after its own Windows test run passes (staging.4 and staging.5 both 15/15; the
+(also linked on the Network security page with version and SHA-256). Version 0.2.0-staging.6,
+6.3 MB, SHA-256 `5a6f355dc1e3cecebfc94bf637524bf6ba811d8d7eed02acd8e238d4a3e969b2`. Not code-signed (by decision).
+Each build is published only after its own Windows test run passes (staging.4 and .5: 15/15; staging.6: 16/16 incl. link-then-scan; the
 hash changes between builds because the commit id is stamped into the file).
 
 What it does (`scanner/`, Go, single .exe, Windows 10/11 64-bit, no install, no admin rights, no drivers):
@@ -103,3 +103,10 @@ site and verify the SHA-256 equals the tested file. Site deploys no longer delet
 ## Phase 3 (next, awaiting approval): analysis
 Fixed rules for risky services, known-vulnerability lookup by product/version (OSV/NVD, labelled "potential"),
 AI explanation and prioritisation within the $20/month cap.
+
+### 25 Nov follow-up: "scan is not working"
+Read-only diagnosis (`scanner-diagnose.yml`, prints no personal data): the owner's workspace had the Network
+security page open and loading normally, but had never created a linking code, so no PC was linked and no scan
+could be sent. Changes: choosing Scan on an unlinked PC now asks for the linking code and continues; the page shows
+Step 1 download → Step 2 linking code → Step 3 scan; refusal reasons are now logged (addresses masked). Also fixed:
+Supabase retired the `logs.all` endpoint, which had silently disabled the error-log step in the E2E workflow.
