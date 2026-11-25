@@ -279,6 +279,9 @@ async function main() {
   // ---------------- Cyber Security Scan agent (Phase 1) ----------------
   await securityChecks(A, B, orgA);
 
+  // ---------------- Hired status ----------------
+  await hiredChecks(A, B, orgA, orgB);
+
   // ---------------- AI features ----------------
   if (!RUN_AI) {
     record('ai', 'AI features', 'skip', 'run with "ai" in ops/e2e.request to include them');
@@ -364,6 +367,43 @@ async function portalLinkFor(candidateId) {
   return token;
 }
 const R = (token, body) => call(token, 'recruitment', body);
+
+// ---------------------------------------------------- Hired status (payment-confirmed) --
+async function hiredChecks(A, B, orgA, orgB) {
+  const hiredOf = async (user) => {
+    const { data, error } = await user.client.from('organizations').select('id, hired');
+    if (error) throw new Error(error.message);
+    return Object.fromEntries(data.map((o) => [o.id, o.hired]));
+  };
+  await check('hired', 'a workspace without confirmed payment is not hired', async () => {
+    const h = await hiredOf(A);
+    return h[orgA] === false ? true : { fail: JSON.stringify(h) };
+  });
+  await check('hired', 'a workspace owner cannot mark their own workspace paid or hired', async () => {
+    await A.client.from('organizations').update({ stripe_subscription_id: 'sub_fake' }).eq('id', orgA);
+    const direct = await A.client.from('organizations').update({ hired: true }).eq('id', orgA);
+    const h = await hiredOf(A);
+    const { data } = await admin.from('organizations').select('stripe_subscription_id').eq('id', orgA).single();
+    return h[orgA] === false && !data.stripe_subscription_id && direct.error ? `refused (${direct.error.code || 'error'})` : { fail: JSON.stringify({ h, sub: data.stripe_subscription_id, direct: direct.error }) };
+  });
+  await check('hired', 'confirmed payment (as recorded by the verified Stripe webhook) marks every agent hired', async () => {
+    await admin.from('organizations').update({ stripe_subscription_id: `sub_e2e_${runId}`, stripe_customer_id: `cus_e2e_${runId}` }).eq('id', orgA);
+    const h = await hiredOf(A);
+    const { data: agents } = await A.client.from('agents').select('id, organization_id').eq('organization_id', orgA);
+    return h[orgA] === true ? `workspace hired; ${agents.length} agent(s) in it show Hired` : { fail: JSON.stringify(h) };
+  });
+  await check('hired', "another company never sees this workspace's status, and stays unhired", async () => {
+    const hb = await hiredOf(B);
+    return !(orgA in hb) && hb[orgB] === false ? true : { fail: JSON.stringify(hb) };
+  });
+  await check('hired', 'cancelled subscription or suspended workspace removes Hired', async () => {
+    await admin.from('organizations').update({ status: 'suspended' }).eq('id', orgA);
+    const suspended = (await hiredOf(A))[orgA];
+    await admin.from('organizations').update({ status: 'active', stripe_subscription_id: '' }).eq('id', orgA);
+    const cancelled = (await hiredOf(A))[orgA];
+    return suspended === false && cancelled === false ? true : { fail: JSON.stringify({ suspended, cancelled }) };
+  });
+}
 
 // ---------------------------------------------------- Cyber Security Scan (Phase 1) --
 const S = (token, body) => call(token, 'securityScan', body);

@@ -2,15 +2,17 @@ import { Link } from 'react-router-dom';
 import { ArrowUpRight, GripVertical, Wrench } from 'lucide-react';
 import AgentStatusPill from '@/components/agents/AgentStatusPill';
 import { displayStatus } from '@/components/agents/agentStatus';
+import { HIRED_GLOW, HiredBadge, useHiredWorkspaces } from '@/components/agents/hired';
 
 export default function AgentBoardCard({ agent, dragging = false }) {
+  const hired = useHiredWorkspaces().isHired(agent);
   return (
     <article
       className={`rounded-xl border p-3.5 transition-all duration-200 ${
         dragging
           ? 'scale-[1.02] border-sky-400/60 bg-[#101a28] shadow-[0_18px_44px_-20px_rgba(34,211,238,0.9)]'
           : 'border-white/10 bg-white/[0.03] hover:-translate-y-0.5 hover:border-white/20'
-      }`}
+      } ${hired && !dragging ? HIRED_GLOW : ''}`}
     >
       <div className="flex items-start justify-between gap-2">
         <h3 className="min-w-0 truncate font-heading text-sm font-semibold text-white">{agent.name}</h3>
@@ -26,6 +28,7 @@ export default function AgentBoardCard({ agent, dragging = false }) {
       </p>
 
       <div className="mt-3 flex flex-wrap items-center gap-1.5">
+        {hired && <HiredBadge />}
         <AgentStatusPill status={displayStatus(agent)} />
         {(agent.tools || []).length > 0 && (
           <span className="inline-flex items-center gap-1 rounded-full border border-white/10 px-2 py-0.5 text-[0.6rem] text-slate-500">

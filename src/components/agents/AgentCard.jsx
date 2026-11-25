@@ -3,8 +3,10 @@ import { Link } from 'react-router-dom';
 import { ArrowUpRight, Pause, Play, Trash2, Wrench } from 'lucide-react';
 import AgentStatusPill from '@/components/agents/AgentStatusPill';
 import { displayStatus } from '@/components/agents/agentStatus';
+import { HIRED_GLOW, HiredBadge, useHiredWorkspaces } from '@/components/agents/hired';
 
 export default function AgentCard({ agent, onStatusChange, onDelete }) {
+  const hired = useHiredWorkspaces().isHired(agent);
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -21,7 +23,7 @@ export default function AgentCard({ agent, onStatusChange, onDelete }) {
   const nextStatus = agent.status === 'active' ? 'paused' : 'active';
 
   return (
-    <article className="group relative flex h-full flex-col overflow-hidden rounded-2xl border border-white/10 bg-white/[0.02] p-5 transition-all duration-300 hover:-translate-y-1 hover:border-sky-400/30 hover:bg-white/[0.04]">
+    <article className={`group relative flex h-full flex-col overflow-hidden rounded-2xl border border-white/10 bg-white/[0.02] p-5 transition-all duration-300 hover:-translate-y-1 hover:border-sky-400/30 hover:bg-white/[0.04] ${hired ? HIRED_GLOW : ''}`}>
       <div
         aria-hidden="true"
         className="pointer-events-none absolute -right-16 -top-20 h-40 w-40 rounded-full bg-[radial-gradient(circle,rgba(56,189,248,0.16),transparent_70%)] opacity-0 transition-opacity duration-500 group-hover:opacity-100"
@@ -34,7 +36,10 @@ export default function AgentCard({ agent, onStatusChange, onDelete }) {
             {agent.specialization || agent.industry || 'General'}
           </p>
         </div>
-        <AgentStatusPill status={displayStatus(agent)} />
+        <div className="flex shrink-0 flex-col items-end gap-1.5">
+          {hired && <HiredBadge />}
+          <AgentStatusPill status={displayStatus(agent)} />
+        </div>
       </div>
 
       <p className="relative mt-3 line-clamp-3 text-sm leading-relaxed text-slate-400">

@@ -123,6 +123,9 @@ async function main() {
     orgId = ws.id;
     await admin.from('organization_members').insert({ organization_id: orgId, user_id: userId, email, member_role: 'owner', status: 'active' });
     await admin.from('profiles').update({ organization_ids: [orgId] }).eq('id', userId);
+    // Confirmed payment, exactly as the signature-verified Stripe webhook records it, so
+    // agent pages show the Hired status (red glow + green label).
+    await admin.from('organizations').update({ stripe_subscription_id: 'sub_ui_test_confirmed', stripe_customer_id: 'cus_ui_test' }).eq('id', orgId);
     const { data: agent } = await admin.from('agents').insert({
       name: 'Nova (UI test)', organization_id: orgId, created_by_id: userId, created_by: email, role: 'Support assistant',
       specialization: 'Customer support', industry: 'E-commerce', status: 'active', tone: 'Friendly', summary: 'Answers customer questions.',

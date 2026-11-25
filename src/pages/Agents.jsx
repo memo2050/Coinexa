@@ -9,8 +9,10 @@ import Reveal from '@/components/site/Reveal';
 import SectionHeading from '@/components/site/SectionHeading';
 import AgentCard from '@/components/agents/AgentCard';
 import AgentBoard from '@/components/agents/AgentBoard';
+import { HIRED_GLOW, HiredBadge, useHiredWorkspaces } from '@/components/agents/hired';
 
 export default function Agents() {
+  const { anyHired } = useHiredWorkspaces();
   const [agents, setAgents] = useState([]);
   const [counts, setCounts] = useState({ total: 0, active: 0, paused: 0 });
   const [loading, setLoading] = useState(true);
@@ -195,9 +197,9 @@ export default function Agents() {
             className="group mt-8 flex flex-col gap-4 rounded-2xl border border-sky-400/25 bg-[linear-gradient(120deg,rgba(37,99,235,0.14),rgba(34,211,238,0.06))] p-5 transition-colors hover:border-sky-400/50 sm:flex-row sm:items-center sm:justify-between"
           >
             <div className="flex items-start gap-4">
-              <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-blue-600 to-cyan-400"><Briefcase className="h-5 w-5 text-white" /></span>
+              <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-blue-600 to-cyan-400 ${anyHired ? HIRED_GLOW : ''}`}><Briefcase className="h-5 w-5 text-white" /></span>
               <div>
-                <p className="text-[0.66rem] font-semibold uppercase tracking-[0.18em] text-sky-300">Featured agent</p>
+                <div className="flex flex-wrap items-center gap-2"><p className="text-[0.66rem] font-semibold uppercase tracking-[0.18em] text-sky-300">Featured agent</p>{anyHired && <HiredBadge />}</div>
                 <p className="mt-1 font-heading text-lg font-semibold text-white">AI Recruitment & Talent Sourcing Agent</p>
                 <p className="mt-1 max-w-2xl text-sm text-slate-400">
                   Find, evaluate, contact and negotiate with IT professionals worldwide — inside the budget you approve, with candidate consent and a full audit trail.
@@ -214,9 +216,9 @@ export default function Agents() {
             className="group mt-4 flex flex-col gap-4 rounded-2xl border border-sky-400/25 bg-[linear-gradient(120deg,rgba(37,99,235,0.14),rgba(34,211,238,0.06))] p-5 transition-colors hover:border-sky-400/50 sm:flex-row sm:items-center sm:justify-between"
           >
             <div className="flex items-start gap-4">
-              <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-blue-600 to-cyan-400"><ShieldCheck className="h-5 w-5 text-white" /></span>
+              <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-blue-600 to-cyan-400 ${anyHired ? HIRED_GLOW : ''}`}><ShieldCheck className="h-5 w-5 text-white" /></span>
               <div>
-                <p className="text-[0.66rem] font-semibold uppercase tracking-[0.18em] text-sky-300">Featured agent</p>
+                <div className="flex flex-wrap items-center gap-2"><p className="text-[0.66rem] font-semibold uppercase tracking-[0.18em] text-sky-300">Featured agent</p>{anyHired && <HiredBadge />}</div>
                 <p className="mt-1 font-heading text-lg font-semibold text-white">Cyber Security Scan Agent</p>
                 <p className="mt-1 max-w-2xl text-sm text-slate-400">
                   Scan your own local network from a linked Windows PC, find devices and open ports, and get a prioritised security report — authorised scans only.

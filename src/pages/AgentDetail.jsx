@@ -13,6 +13,7 @@ import ResearchPanel from '@/components/research/ResearchPanel';
 import WorkflowPanel from '@/components/workflow/WorkflowPanel';
 import { isResearchAgent } from '@/components/research/researchHelpers';
 import { displayStatus, statusDescriptions } from '@/components/agents/agentStatus';
+import { HiredBadge, useHiredWorkspaces } from '@/components/agents/hired';
 
 function Chips({ items, empty }) {
   if (!items?.length) return <p className="text-xs text-slate-500">{empty}</p>;
@@ -39,6 +40,7 @@ export default function AgentDetail() {
   const [confirming, setConfirming] = useState(false);
   const [running, setRunning] = useState(false);
   const [historyKey, setHistoryKey] = useState(0);
+  const { isHired } = useHiredWorkspaces();
 
   useEffect(() => {
     let cancelled = false;
@@ -142,6 +144,7 @@ export default function AgentDetail() {
           <div className="flex flex-wrap items-center gap-3">
             <h1 className="font-heading text-3xl font-semibold leading-tight tracking-[-0.02em] sm:text-4xl">{agent.name}</h1>
             <AgentStatusPill status={status} />
+            {isHired(agent) && <HiredBadge />}
           </div>
           <p className="mt-2 text-sm text-slate-400">
             {agent.specialization || agent.role || 'AI agent'} · {agent.industry || 'General'}

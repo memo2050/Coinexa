@@ -276,4 +276,36 @@ do $$ begin
 end $$;
 rollback;
 
+-- Hired status: derived from webhook-confirmed payment; customers cannot fake it.
+begin;
+select pg_temp.act_as('00000000-0000-0000-0000-00000000000c', 'c@test.local');
+set local role authenticated;
+do $$ begin
+  update public.organizations set stripe_subscription_id = 'sub_fake' where id = 'org-c';
+  if exists (select 1 from public.organizations where id = 'org-c' and hired) then
+    raise notice 'FAIL: 44 a workspace owner made their own workspace hired';
+  else
+    raise notice 'pass: 44 a workspace owner cannot mark their workspace paid or hired';
+  end if;
+  begin
+    update public.organizations set hired = true where id = 'org-c';
+    raise notice 'FAIL: 45 hired was written directly';
+  exception when others then raise notice 'pass: 45 hired cannot be written by anyone (generated from payment fields)';
+  end;
+end $$;
+reset role;
+do $$ begin
+  if (select hired from public.organizations where id = 'org-c') then raise notice 'FAIL: 46 unpaid workspace shows hired'; end if;
+  update public.organizations set stripe_subscription_id = 'sub_test_confirmed' where id = 'org-c'; -- what the webhook does
+  if not (select hired from public.organizations where id = 'org-c') then raise notice 'FAIL: 46 confirmed payment did not set hired';
+  else raise notice 'pass: 46 confirmed payment marks the workspace hired'; end if;
+  update public.organizations set status = 'suspended' where id = 'org-c';
+  if (select hired from public.organizations where id = 'org-c') then raise notice 'FAIL: 47 suspended workspace still hired';
+  else raise notice 'pass: 47 a suspended workspace is not hired'; end if;
+  update public.organizations set status = 'active', stripe_subscription_id = '' where id = 'org-c'; -- webhook on cancellation
+  if (select hired from public.organizations where id = 'org-c') then raise notice 'FAIL: 48 cancelled subscription still hired';
+  else raise notice 'pass: 48 cancelling the subscription removes hired'; end if;
+end $$;
+rollback;
+
 select 'ALL RLS CHECKS PASSED' as result;
