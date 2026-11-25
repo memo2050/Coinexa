@@ -21,8 +21,6 @@ async function q(sql) {
 }
 
 // Column names of the unified logs table (printed once; no values).
-const probe = await q('select * from logs limit 1');
-if (probe[0]) console.log('log columns:', Object.keys(probe[0]).join(', '));
 
 const time = (ts) => {
   const n = Number(ts);
@@ -30,10 +28,10 @@ const time = (ts) => {
   return Number.isNaN(d.getTime()) ? String(ts) : d.toISOString().slice(0, 19) + 'Z';
 };
 console.log('== securityScan requests (method | status) ==');
-const reqs = await q("select timestamp, event_message from logs where source_name = 'function_edge_logs' and event_message like '%/securityScan%' order by timestamp desc limit 100");
+const reqs = await q("select timestamp, event_message from logs where event_message like '%/functions/v1/securityScan%' order by timestamp desc limit 100");
 console.log(`${reqs.length} requests`);
 for (const r of reqs) console.log(time(r.timestamp), mask(String(r.event_message).split('|').slice(0, 2).join('|')));
 console.log('\n== securityScan refusals and errors ==');
-const logs = await q("select timestamp, event_message from logs where source_name = 'function_logs' and event_message like '%securityScan%' order by timestamp desc limit 100");
+const logs = await q("select timestamp, event_message from logs where event_message like 'securityScan %' order by timestamp desc limit 100");
 console.log(`${logs.length} lines`);
 for (const r of logs) console.log(time(r.timestamp), mask(r.event_message));
