@@ -63,7 +63,7 @@ async function navCheck(context, role, expect) {
       if (!(await page.getByText('Super admin access only').count())) problems.push('/admin not refused for a user');
     }
     if (expect.signOut && role === 'admin') {
-      await header.getByText('Sign Out', { exact: true }).click();
+      await header.locator('button:visible', { hasText: 'Sign Out' }).first().click();
       await page.waitForURL((u) => u.pathname === '/', { timeout: 20000 }).catch(() => problems.push('sign out did not go home'));
       await page.goto(`${BASE}/privacy`, { waitUntil: 'networkidle' });
       if (!(await page.locator('header').first().getByText('Sign In', { exact: true }).count())) problems.push('Sign In not shown after sign out');
