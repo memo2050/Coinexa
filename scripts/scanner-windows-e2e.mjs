@@ -63,7 +63,13 @@ function privateAddress() {
 
 function listen(host, port, onConn) {
   return new Promise((resolve, reject) => {
-    const s = net.createServer(onConn);
+    // The scanner's discovery probes connect and close at once; Windows reports that as
+    // a reset, which must not crash the test server.
+    const s = net.createServer((c) => {
+      c.on('error', () => {});
+      onConn(c);
+    });
+    s.on('error', () => {});
     s.once('error', reject);
     s.listen(port, host, () => resolve(s));
   });
@@ -73,6 +79,8 @@ async function main() {
   const me = privateAddress();
   console.log(`Test machine: ${os.hostname()}, private address ${me?.address} (${me?.name}). Only this address is scanned.`);
   if (!me) throw new Error('This test machine has no private IPv4 address.');
+
+  await removeStaleTestAccounts();
 
   // Throwaway account and workspace.
   const email = `e2e-scanner-${runId}@example.com`;
@@ -209,6 +217,22 @@ async function main() {
   for (const s of servers) s.close();
 }
 
+// Accounts left by an earlier run that stopped before its cleanup.
+async function removeStaleTestAccounts() {
+  const { data } = await admin.auth.admin.listUsers({ perPage: 1000 });
+  for (const u of data?.users || []) {
+    if (!/^e2e-scanner-[a-z0-9]+@example\.com$/.test(u.email || '')) continue;
+    const { data: mem } = await admin.from('organization_members').select('organization_id').eq('user_id', u.id);
+    for (const m of mem || []) {
+      await admin.from('audit_logs').delete().eq('organization_id', m.organization_id);
+      await admin.from('organization_members').delete().eq('organization_id', m.organization_id);
+      await admin.from('organizations').delete().eq('id', m.organization_id);
+    }
+    await admin.auth.admin.deleteUser(u.id);
+    console.log(`removed a stale test account from an earlier run (${u.email})`);
+  }
+}
+
 async function cleanup() {
   try {
     if (orgId) {
@@ -223,6 +247,7 @@ async function cleanup() {
   }
 }
 
+process.on('uncaughtException', (e) => record('unexpected error', false, e?.message || e));
 try {
   await main();
 } catch (e) {
