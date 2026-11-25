@@ -90,7 +90,7 @@ jobs:
             const url = `https://${process.env.SUPABASE_PROJECT_REF}.supabase.co/functions/v1/stripeWebhook`;
             const hooks = await api("GET", "/webhook_endpoints?limit=100");
             const existing = hooks.data.filter((h) => h.url === url);
-            const events = ["checkout.session.completed", "checkout.session.async_payment_succeeded", "customer.subscription.created", "customer.subscription.updated", "customer.subscription.deleted", "invoice.paid", "invoice.payment_failed"];
+            const events = ["checkout.session.completed", "checkout.session.async_payment_succeeded", "customer.subscription.created", "customer.subscription.updated", "customer.subscription.deleted", "invoice.paid", "invoice.payment_failed", "charge.refunded", "charge.dispute.created"];
             if (existing.length && process.env.RECREATE !== "true") {
               const params = new URLSearchParams();
               events.forEach((e) => params.append("enabled_events[]", e));

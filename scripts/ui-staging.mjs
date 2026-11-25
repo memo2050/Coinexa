@@ -45,6 +45,39 @@ async function revealAll(page) {
   await page.waitForTimeout(300);
 }
 
+// Top menu by sign-in state (desktop header). Expected: visitor → Sign In; user →
+// Security + Sign Out, no Admin Console; admin → Admin Console too. Recorded as a row.
+async function navCheck(context, role, expect) {
+  const page = await context.newPage();
+  const problems = [];
+  try {
+    await page.goto(`${BASE}/privacy`, { waitUntil: 'networkidle', timeout: 45000 });
+    await page.waitForTimeout(1500);
+    const header = page.locator('header').first();
+    const has = async (name) => (await header.getByText(name, { exact: true }).count()) > 0;
+    const seen = { signIn: await has('Sign In'), security: await has('Security'), signOut: await has('Sign Out'), admin: await has('Admin Console') };
+    for (const [k, v] of Object.entries(expect)) if (seen[k] !== v) problems.push(`${k} ${v ? 'missing' : 'shown'}`);
+    // A plain user opening the admin console directly is refused (the server refuses too).
+    if (role === 'user') {
+      await page.goto(`${BASE}/admin`, { waitUntil: 'networkidle', timeout: 45000 });
+      if (!(await page.getByText('Super admin access only').count())) problems.push('/admin not refused for a user');
+    }
+    if (expect.signOut && role === 'admin') {
+      await header.getByText('Sign Out', { exact: true }).click();
+      await page.waitForURL((u) => u.pathname === '/', { timeout: 20000 }).catch(() => problems.push('sign out did not go home'));
+      await page.goto(`${BASE}/privacy`, { waitUntil: 'networkidle' });
+      if (!(await page.locator('header').first().getByText('Sign In', { exact: true }).count())) problems.push('Sign In not shown after sign out');
+      await page.goto(`${BASE}/agents`, { waitUntil: 'networkidle' });
+      if (!new URL(page.url()).pathname.startsWith('/login')) problems.push('protected page still open after sign out');
+    }
+    await page.screenshot({ path: `${OUT}/nav_${role}.jpg`, type: 'jpeg', quality: 70, clip: { x: 0, y: 0, width: 1440, height: 90 } }).catch(() => {});
+  } catch (e) {
+    problems.push(String(e.message).slice(0, 150));
+  }
+  await page.close();
+  rows.push({ role, vp: 'desktop', path: `MENU (${Object.entries(expect).map(([k, v]) => `${k}=${v ? 'yes' : 'no'}`).join(' ')})`, finalPath: '', heading: '', ms: 0, blank: false, consoleErrors: problems, failed: [] });
+}
+
 async function visit(context, role, vp, path) {
   const page = await context.newPage();
   const consoleErrors = [];
@@ -106,6 +139,11 @@ async function main() {
       await anonCtx.close();
     }
 
+    {
+      const v = await browser.newContext({ viewport: VIEWPORTS.desktop });
+      await navCheck(v, 'visitor', { signIn: true, security: false, signOut: false, admin: false });
+      await v.close();
+    }
     // Sign in through the real form, unless CAPTCHA is on (a test cannot solve it): then
     // sign in with a server-issued one-time link and give the browser that session.
     const storageKey = `sb-${new URL(URL_).hostname.split('.')[0]}-auth-token`;
@@ -192,6 +230,11 @@ async function main() {
       await anon.close();
     }
 
+    {
+      const u = await browser.newContext({ viewport: VIEWPORTS.desktop, storageState: state });
+      await navCheck(u, 'user', { signIn: false, security: true, signOut: true, admin: false });
+      await u.close();
+    }
     await admin.from('profiles').update({ role: 'admin' }).eq('id', userId);
     // The admin console requires two-step sign-in: enroll an authenticator and use the
     // resulting aal2 session for the admin pages.
@@ -202,6 +245,12 @@ async function main() {
       const adminCtx = await browser.newContext({ viewport, isMobile: !!viewport.isMobile, hasTouch: !!viewport.hasTouch, storageState: adminState });
       for (const p of ADMIN) await visit(adminCtx, 'admin', vp, p);
       await adminCtx.close();
+    }
+    {
+      // Last, because it signs the admin session out.
+      const a = await browser.newContext({ viewport: VIEWPORTS.desktop, storageState: adminState });
+      await navCheck(a, 'admin', { signIn: false, security: true, signOut: true, admin: true });
+      await a.close();
     }
   } finally {
     await browser.close();

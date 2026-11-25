@@ -1,0 +1,88 @@
+# LAUNCH AUDIT (read-only). Changes nothing anywhere.
+# Reports: public DNS for coinexa.net (who hosts it, existing mail/SPF/DKIM/DMARC records),
+# Supabase plan, usage, backups and the owner's two-step sign-in status, Stripe account
+# readiness for live payments, and whether the Resend key can manage domains.
+# The repository is public: output is limited to public DNS data, sizes, counts and yes/no.
+name: Launch audit (read-only)
+
+on:
+  push:
+    branches: [stage-2/build]
+    paths: ['ops/launch-audit.request']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Load staging settings
+        run: grep -E '^[A-Z_]+=' deploy/staging.env >> "$GITHUB_ENV"
+
+      - name: DNS for coinexa.net (public records)
+        run: |
+          sudo apt-get install -y -qq dnsutils whois >/dev/null 2>&1 || true
+          d=coinexa.net
+          echo "registrar: $(whois $d 2>/dev/null | grep -m1 -i 'Registrar:' | sed 's/.*Registrar: *//')"
+          for t in NS SOA A AAAA MX TXT CAA; do echo "$t $d: $(dig +short $t $d | tr '\n' ' ')"; done
+          echo "A www.$d: $(dig +short www.$d | tr '\n' ' ')"
+          echo "TXT _dmarc.$d: $(dig +short TXT _dmarc.$d | tr '\n' ' ')"
+          echo "TXT resend._domainkey.$d: $(dig +short TXT resend._domainkey.$d | cut -c1-60)"
+          echo "MX send.$d: $(dig +short MX send.$d | tr '\n' ' ')"
+          echo "TXT send.$d: $(dig +short TXT send.$d | tr '\n' ' ')"
+          for s in google selector1 selector2 default k1; do r=$(dig +short TXT $s._domainkey.$d | head -c 40); [ -n "$r" ] && echo "DKIM $s: present"; done; true
+
+      - name: Supabase plan, usage, backups, owner two-step sign-in
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          OWNER_EMAIL: ${{ vars.OWNER_EMAIL }}
+        run: |
+          api() { curl -s -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" "https://api.supabase.com/v1$1"; }
+          q() { curl -s -X POST -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H 'Content-Type: application/json' \
+                 "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/database/query" -d "$(jq -n --arg q "$1" '{query:$q}')"; }
+          p=$(api /projects/$SUPABASE_PROJECT_REF)
+          org=$(echo "$p" | jq -r .organization_id)
+          echo "project: $(echo "$p" | jq -r '"\(.name) region=\(.region) status=\(.status) postgres=\(.database.version)"')"
+          echo "organization plan: $(api /organizations/$org | jq -r '.plan // "unknown"')"
+          b=$(api /projects/$SUPABASE_PROJECT_REF/database/backups)
+          echo "backups: pitr=$(echo "$b" | jq -r '.pitr_enabled') walg=$(echo "$b" | jq -r '.walg_enabled') daily backups kept=$(echo "$b" | jq -r '.backups | length')"
+          q "select pg_size_pretty(pg_database_size('postgres')) as db,
+                    (select count(*) from auth.users) as users,
+                    (select count(*) from storage.objects) as files,
+                    (select pg_size_pretty(coalesce(sum((metadata->>'size')::bigint),0)) from storage.objects) as file_bytes,
+                    (select count(*) from public.organizations) as workspaces,
+                    (select count(*) from public.agents) as agents" | jq -c '.[0]'
+          q "select relname as table, pg_size_pretty(pg_total_relation_size(c.oid)) as size from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relkind='r' order by pg_total_relation_size(c.oid) desc limit 5" | jq -c '.[]'
+          q "select count(*) filter (where p.role='admin') as admins from public.profiles p" | jq -c '.[0]'
+          if [ -n "$OWNER_EMAIL" ]; then
+            q "select (select role from public.profiles where id=u.id) as role,
+                      exists(select 1 from auth.mfa_factors f where f.user_id=u.id and f.factor_type='totp' and f.status='verified') as two_step_verified
+               from auth.users u where lower(u.email)=lower('$OWNER_EMAIL')" | jq -c '"owner account: \(.[0] // "not found")"'
+          fi
+          q "select count(*) as admins_without_two_step from public.profiles p where p.role='admin' and not exists(select 1 from auth.mfa_factors f where f.user_id=p.id and f.status='verified')" | jq -c '.[0]'
+
+      - name: Stripe account readiness (test key, read-only)
+        env:
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+        run: |
+          s() { curl -s -u "$STRIPE_SECRET_KEY:" -H 'Stripe-Version: 2025-10-29.clover' "https://api.stripe.com/v1$1"; }
+          a=$(s /account)
+          echo "$a" | jq -c '{country, default_currency, details_submitted, charges_enabled, payouts_enabled,
+            business_url_set: (.business_profile.url != null), support_email_set: (.business_profile.support_email != null),
+            statement_descriptor_set: (.settings.payments.statement_descriptor != null and .settings.payments.statement_descriptor != ""),
+            requirements_due: (.requirements.currently_due | length), disabled_reason: .requirements.disabled_reason}'
+          echo "customer portal configurations: $(s /billing_portal/configurations | jq '.data | length')"
+          echo "tax settings: $(s /tax/settings | jq -r '.status // .error.message')"
+          echo "test webhooks: $(s '/webhook_endpoints?limit=20' | jq -c '[.data[] | {status, livemode, events: (.enabled_events|length)}]')"
+          echo "agent prices (test): $(s '/prices?limit=100&active=true' | jq '[.data[] | select(.lookup_key // "" | startswith("coinexa_agent_"))] | length')"
+
+      - name: Resend key permissions
+        env:
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+        run: |
+          code=$(curl -s -o /tmp/r.json -w '%{http_code}' -H "Authorization: Bearer $RESEND_API_KEY" https://api.resend.com/domains)
+          if [ "$code" = 200 ]; then jq -c '[.data[] | {name, status, region}]' /tmp/r.json; else echo "Resend key cannot list domains (HTTP $code: $(jq -r .name /tmp/r.json)) → sending-only key"; fi
+          rm -f /tmp/r.json

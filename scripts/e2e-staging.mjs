@@ -477,6 +477,7 @@ async function waitFor(fn, ms = 40000) {
   return null;
 }
 async function stripeChecks(A, orgA) {
+  const startedAt = new Date(Date.now() - 5000).toISOString();
   let sub;
   const { data: agents } = await admin.from('agents').insert([
     { name: `Paid CRM ${runId}`, organization_id: orgA, created_by_id: A.id, created_by: A.email, status: 'active', catalog_key: 'crm' },
@@ -520,9 +521,39 @@ async function stripeChecks(A, orgA) {
       const { data } = await admin.from('stripe_events').select('id, result').like('result', 'agent hire%').order('created_date', { ascending: false }).limit(5);
       return data.length > 0 ? `${data.length} recent agent-hire events recorded once each` : { fail: 'no events recorded' };
     });
+    await check('billing-stripe', 'a refund is recorded for the admin; the agent stays until its line is cancelled', async () => {
+      const inv = await stripeApi('GET', `/invoices/${sub.latest_invoice}?expand[]=payments`);
+      const pi = inv.payments?.data?.[0]?.payment?.payment_intent;
+      if (!pi) throw new Error('no payment on the first invoice');
+      const refund = await stripeApi('POST', '/refunds', { payment_intent: typeof pi === 'string' ? pi : pi.id });
+      const ev = await waitFor(async () => (await admin.from('stripe_events').select('result').eq('type', 'charge.refunded').like('result', 'money back%').gte('created_date', startedAt).limit(1).maybeSingle()).data, 60000);
+      const { data: logs } = await admin.from('audit_logs').select('action, detail').eq('organization_id', orgA).eq('action', 'billing.refunded');
+      const { data: h } = await admin.from('agent_hires').select('status').eq('organization_id', orgA).eq('subject', crm.id).single();
+      return refund.status === 'succeeded' && ev && logs.length === 1 && h.status === 'active' ? `${ev.result}; audit log entry; CRM still ${h.status}` : { fail: JSON.stringify({ refund: refund.status, ev, logs, h }) };
+    });
   } finally {
     if (sub) await stripeApi('DELETE', `/subscriptions/${sub.id}`).catch(() => null);
   }
+  // A declined first payment must not hire anything.
+  await check('billing-stripe', 'a declined card on the first payment hires nothing', async () => {
+    const { data: ws } = await admin.from('organizations').insert({ name: `Declined ${runId}`, plan: 'starter', status: 'active' }).select('id').single();
+    const price = (await stripeApi('GET', '/prices?lookup_keys[]=coinexa_agent_legal_v1&active=true')).data[0];
+    const customer = await stripeApi('POST', '/customers', { email: A.email, 'metadata[e2e]': runId });
+    const card = await stripeApi('POST', '/payment_methods/pm_card_chargeCustomerFail/attach', { customer: customer.id });
+    await stripeApi('POST', `/customers/${customer.id}`, { 'invoice_settings[default_payment_method]': card.id });
+    await admin.from('organizations').update({ stripe_customer_id: customer.id }).eq('id', ws.id);
+    let declined;
+    try {
+      declined = await stripeApi('POST', '/subscriptions', { customer: customer.id, 'items[0][price]': price.id, payment_behavior: 'allow_incomplete', 'metadata[kind]': 'agent_hires', 'metadata[organization_id]': ws.id, 'metadata[first_subject]': unpaid.id, 'metadata[first_plan]': 'legal' });
+      await new Promise((r) => setTimeout(r, 8000));
+      const ev = (await admin.from('stripe_events').select('type, result').like('result', 'agent hire%').gte('created_date', startedAt).ilike('result', '%not completed%').limit(1)).data;
+      const { data: hires } = await admin.from('agent_hires').select('status').eq('organization_id', ws.id);
+      return declined.status === 'incomplete' && hires.length === 0 ? `subscription ${declined.status}; no agent hired${ev.length ? '; webhook: ' + ev[0].result : ''}` : { fail: JSON.stringify({ status: declined.status, hires }) };
+    } finally {
+      if (declined) await stripeApi('DELETE', `/subscriptions/${declined.id}`).catch(() => null);
+      await admin.from('organizations').delete().eq('id', ws.id);
+    }
+  });
 }
 
 // ---------------------------------------------------- Hired status (payment-confirmed) --

@@ -50,6 +50,24 @@ async function stripeGet(path, secretKey) {
   return json;
 }
 
+// Refunds and disputes are issued in the Stripe dashboard. They are recorded in the
+// workspace audit log for the platform admin; access is unchanged (an agent ends only
+// when its subscription line is cancelled). Returns null for workspaces without agent hires.
+async function moneyBackEvent(event, secretKey, db) {
+  const obj = event?.data?.object || {};
+  const refund = event.type === 'charge.refunded';
+  const charge = refund ? obj : await stripeGet(`/charges/${encodeURIComponent(String(obj.charge || ''))}`, secretKey);
+  const customer = typeof charge.customer === 'string' ? charge.customer : charge.customer?.id;
+  if (!customer) return null;
+  const { data: org } = await db.from('organizations').select('id, agent_subscription_id').eq('stripe_customer_id', customer).maybeSingle();
+  if (!org?.agent_subscription_id) return null;
+  const amount = refund ? obj.amount_refunded : obj.amount;
+  const kind = refund ? (charge.refunded ? 'full refund' : 'partial refund') : `dispute opened (${obj.reason || 'no reason given'})`;
+  const detail = `${kind}: ${(Number(amount || 0) / 100).toFixed(2)} ${String(obj.currency || '').toUpperCase()}`;
+  await db.from('audit_logs').insert({ organization_id: org.id, actor_id: null, actor_email: 'stripe', action: refund ? 'billing.refunded' : 'billing.dispute_opened', target_type: 'Payment', target_id: String(charge.id || obj.id), detail });
+  return `money back: ${detail}`;
+}
+
 // Returns a result line for agent-hire events, or null for everything else (which the
 // existing workspace-plan handling below processes unchanged).
 async function agentHireEvent(event, secretKey, db) {
@@ -66,6 +84,8 @@ async function agentHireEvent(event, secretKey, db) {
     const meta = obj.parent?.subscription_details?.metadata || obj.subscription_details?.metadata || {};
     if (meta.kind !== HIRE_KIND) return null;
     subscriptionId = obj.parent?.subscription_details?.subscription || obj.subscription;
+  } else if (event.type === 'charge.refunded' || event.type === 'charge.dispute.created') {
+    return await moneyBackEvent(event, secretKey, db);
   } else {
     return null;
   }
