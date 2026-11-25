@@ -57,6 +57,13 @@ async function navCheck(context, role, expect) {
     const has = async (name) => (await header.getByText(name, { exact: true }).count()) > 0;
     const seen = { signIn: await has('Sign In'), security: await has('Security'), signOut: await has('Sign Out'), admin: await has('Admin Console') };
     for (const [k, v] of Object.entries(expect)) if (seen[k] !== v) problems.push(`${k} ${v ? 'missing' : 'shown'}`);
+    await page.screenshot({ path: `${OUT}/nav_${role}.jpg`, type: 'jpeg', quality: 75, clip: { x: 0, y: 0, width: 1440, height: 90 } }).catch(() => {});
+    await page.setViewportSize({ width: 1024, height: 700 });
+    await page.waitForTimeout(400);
+    const crowded = await header.evaluate((h) => h.scrollWidth > h.clientWidth + 1 || [...h.querySelectorAll('a,button')].some((el) => el.offsetParent && el.getBoundingClientRect().height > 60));
+    if (crowded) problems.push('menu overflows at 1024 px');
+    await page.screenshot({ path: `${OUT}/nav_${role}_1024.jpg`, type: 'jpeg', quality: 75, clip: { x: 0, y: 0, width: 1024, height: 90 } }).catch(() => {});
+    await page.setViewportSize({ width: 1440, height: 900 });
     // A plain user opening the admin console directly is refused (the server refuses too).
     if (role === 'user') {
       await page.goto(`${BASE}/admin`, { waitUntil: 'networkidle', timeout: 45000 });
@@ -70,7 +77,6 @@ async function navCheck(context, role, expect) {
       await page.goto(`${BASE}/agents`, { waitUntil: 'networkidle' });
       if (!new URL(page.url()).pathname.startsWith('/login')) problems.push('protected page still open after sign out');
     }
-    await page.screenshot({ path: `${OUT}/nav_${role}.jpg`, type: 'jpeg', quality: 70, clip: { x: 0, y: 0, width: 1440, height: 90 } }).catch(() => {});
   } catch (e) {
     problems.push(String(e.message).slice(0, 150));
   }
