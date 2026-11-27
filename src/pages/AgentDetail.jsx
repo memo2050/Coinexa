@@ -178,6 +178,7 @@ export default function AgentDetail() {
             <button
               type="button"
               onClick={() => setEditing(true)}
+              data-testid="agent-edit"
               className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-4 py-2.5 text-sm text-slate-300 transition-colors hover:border-sky-400/40 hover:text-white"
             >
               <PencilLine className="h-4 w-4" />

@@ -107,7 +107,7 @@ async function agentEditCheck(context, agentId) {
     if (await cardLink.count()) await cardLink.click();
     else { problems.push('no link to the agent on its card'); await page.goto(`${BASE}/agents/${agentId}`); }
     await page.waitForURL(new RegExp(`/agents/${agentId}`), { timeout: 20000 });
-    await page.getByRole('button', { name: 'Edit', exact: true }).click();
+    await page.getByTestId('agent-edit').click();
     let dialog = page.getByRole('dialog');
     await dialog.getByLabel('Agent name').waitFor({ timeout: 20000 });
     await dialog.getByLabel('Agent name').fill('Should not be saved');
@@ -115,7 +115,7 @@ async function agentEditCheck(context, agentId) {
     await page.reload({ waitUntil: 'networkidle' });
     if (!(await page.getByRole('heading', { level: 1, name: 'Nova (UI test)' }).count())) problems.push('Cancel changed the name');
 
-    await page.getByRole('button', { name: 'Edit', exact: true }).click();
+    await page.getByTestId('agent-edit').click();
     dialog = page.getByRole('dialog');
     await dialog.getByLabel('Agent name').waitFor({ timeout: 20000 });
     await dialog.getByLabel('Agent name').fill(edits.name);
@@ -147,11 +147,11 @@ async function agentEditCheck(context, agentId) {
       if (!(await card.getByText(edits.description).count())) problems.push('catalog card description not updated');
       if (!(await card.locator('span.h-8.w-8').count())) problems.push('catalog card has no icon');
     }
-    if (!(await page.getByRole('button', { name: 'Edit', exact: true }).count())) problems.push('featured cards have no Edit for the admin');
+    if ((await page.getByTestId('featured-edit').count()) !== 2) problems.push('featured cards have no Edit for the admin');
     await page.screenshot({ path: `${OUT}/agents_catalog_after_edit.jpg`, type: 'jpeg', quality: 80, fullPage: false });
 
     await page.goto(`${BASE}/admin/agents`, { waitUntil: 'networkidle' });
-    if (await page.getByRole('button', { name: /Name & icon|Edit/ }).count()) problems.push('editing controls found in the Command Center');
+    if (await page.getByRole('button', { name: /Name & icon/ }).count() || await page.getByTestId('agent-edit').count() || await page.getByTestId('featured-edit').count()) problems.push('editing controls found in the Command Center');
   } catch (e) {
     problems.push(String(e.message).slice(0, 180));
   }
@@ -165,9 +165,9 @@ async function noEditForUser(context, agentId) {
   try {
     await page.goto(`${BASE}/agents/${agentId}`, { waitUntil: 'networkidle', timeout: 45000 });
     await page.getByRole('heading', { level: 1 }).waitFor({ timeout: 20000 });
-    if (await page.getByRole('button', { name: 'Edit', exact: true }).count()) problems.push('Edit shown to a regular user');
+    if (await page.getByTestId('agent-edit').count()) problems.push('Edit shown to a regular user');
     await page.goto(`${BASE}/agents`, { waitUntil: 'networkidle' });
-    if (await page.getByRole('button', { name: 'Edit', exact: true }).count()) problems.push('featured Edit shown to a regular user');
+    if (await page.getByTestId('featured-edit').count()) problems.push('featured Edit shown to a regular user');
   } catch (e) {
     problems.push(String(e.message).slice(0, 180));
   }

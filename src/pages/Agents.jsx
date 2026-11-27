@@ -33,6 +33,7 @@ export default function Agents() {
         event.stopPropagation();
         setEditingFeatured(key);
       }}
+      data-testid="featured-edit"
       className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs font-semibold text-slate-300 transition-colors hover:border-sky-400/40 hover:text-white"
     >
       <PencilLine className="h-3.5 w-3.5" /> Edit
