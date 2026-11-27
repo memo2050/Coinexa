@@ -188,6 +188,7 @@ export const COLUMNS = {
   agent_hires: new Set(["id","organization_id","subject","agent_id","plan_key","status","stripe_subscription_id","stripe_item_id","current_period_start","current_period_end","ends_at","past_due_since","created_date","updated_date","created_by_id","created_by"]),
   agent_usage: new Set(["id","organization_id","subject","plan_key","kind","period_start","period_end","used","ai_cost_usd","warned","created_date","updated_date","created_by_id","created_by"]),
   stripe_events: new Set(["id","type","result","created_date","updated_date","created_by_id","created_by"]),
+  agent_branding: new Set(["subject","agent_id","name","default_name","icon_kind","icon_key","icon_path","icon_version","suggested_icon","suggested_reason","suggested_source","suggested_for","updated_by","updated_by_email","updated_at","or","or"]),
 };
 // END GENERATED COLUMNS
 
