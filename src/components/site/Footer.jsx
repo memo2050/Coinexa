@@ -83,13 +83,6 @@ export default function Footer() {
             >
               Terms of Service
             </Link>
-            <a
-              href="/presentation/autoadjust-net-deck.pptx"
-              download
-              className="whitespace-nowrap text-slate-500 transition-colors hover:text-white"
-            >
-              Download deck
-            </a>
             {isAdmin && (
               <Link
                 to="/admin"
