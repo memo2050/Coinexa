@@ -5,9 +5,11 @@ import AgentStatusPill from '@/components/agents/AgentStatusPill';
 import { displayStatus } from '@/components/agents/agentStatus';
 import { HIRED_GLOW, HiredBadge, useAgentBilling } from '@/components/agents/hired';
 import AgentBillingRow, { DraftingBadge } from '@/components/agents/AgentBillingRow';
+import { BrandIcon, useAgentBranding } from '@/components/agents/brandIcons';
 
 export default function AgentCard({ agent, onStatusChange, onDelete }) {
   const billing = useAgentBilling();
+  const brandIcon = useAgentBranding().iconFor(agent.id);
   const hired = billing.isHired(agent);
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -32,11 +34,14 @@ export default function AgentCard({ agent, onStatusChange, onDelete }) {
       />
 
       <div className="relative flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h3 className="truncate font-heading text-lg font-semibold text-white">{agent.name}</h3>
-          <p className="mt-1 line-clamp-1 text-xs uppercase tracking-[0.14em] text-slate-500">
-            {agent.specialization || agent.industry || 'General'}
-          </p>
+        <div className="flex min-w-0 items-start gap-3">
+          {brandIcon && <BrandIcon icon={brandIcon} />}
+          <div className="min-w-0">
+            <h3 className="truncate font-heading text-lg font-semibold text-white">{agent.name}</h3>
+            <p className="mt-1 line-clamp-1 text-xs uppercase tracking-[0.14em] text-slate-500">
+              {agent.specialization || agent.industry || 'General'}
+            </p>
+          </div>
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1.5">
           {hired && <HiredBadge />}

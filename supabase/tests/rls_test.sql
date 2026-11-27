@@ -384,4 +384,64 @@ begin
 end $$;
 rollback;
 
+-- ---------- Agent names and icons (admin only) ----------
+begin;
+insert into public.agent_branding (subject, agent_id, icon_kind, icon_key) values
+  ('agent-c', 'agent-c', 'library', 'truck'), ('featured:recruitment', null, 'library', 'briefcase');
+update public.profiles set role = 'admin' where id = '00000000-0000-0000-0000-00000000000a';
+select pg_temp.act_as('00000000-0000-0000-0000-00000000000b', 'b@test.local');
+set local role authenticated;
+select pg_temp.check((select count(*) from public.agent_branding where subject = 'featured:recruitment') = 1
+  and not exists (select 1 from public.agent_branding where subject = 'agent-c'),
+  '60 a customer sees featured icons but not another workspace''s agent settings');
+do $$ begin
+  insert into public.agent_branding (subject, agent_id, icon_kind, icon_key) values ('agent-b', 'agent-b', 'library', 'bot');
+  raise exception 'FAIL: 61 customer wrote an icon setting';
+exception when insufficient_privilege then raise notice 'pass: 61 a customer cannot set an agent icon (direct API insert refused)';
+end $$;
+do $$ begin
+  update public.agent_branding set icon_key = 'bot' where subject = 'featured:recruitment';
+  raise exception 'FAIL: 62 customer changed an icon setting';
+exception when insufficient_privilege then raise notice 'pass: 62 a customer cannot change an icon setting (direct API update refused)';
+end $$;
+do $$ begin
+  update public.agents set name = 'Hijacked' where id = 'agent-b';
+  raise exception 'FAIL: 63 customer renamed an agent';
+exception when insufficient_privilege then raise notice 'pass: 63 a customer cannot rename even their own agent through the API';
+end $$;
+do $$ declare n int; begin
+  update public.agents set status = 'paused' where id = 'agent-b';
+  get diagnostics n = row_count;
+  if n = 1 then raise notice 'pass: 64 a customer can still pause their own agent (existing behaviour kept)';
+  else raise exception 'FAIL: 64 customer could not pause own agent'; end if;
+end $$;
+reset role;
+select pg_temp.act_as('00000000-0000-0000-0000-00000000000a', 'owner@test.local');
+set local role authenticated;
+do $$ begin
+  update public.agents set name = 'Renamed by REST' where id = 'agent-c';
+  raise exception 'FAIL: 65 admin renamed through the API, skipping the admin function';
+exception when insufficient_privilege then raise notice 'pass: 65 even an admin session cannot rename through the API (only the checked admin function can)';
+end $$;
+reset role;
+set local role service_role;
+do $$ declare n int; begin
+  update public.agents set name = 'Renamed by admin function' where id = 'agent-c';
+  get diagnostics n = row_count;
+  if n = 1 then raise notice 'pass: 66 the admin function (service role) can rename';
+  else raise exception 'FAIL: 66 service role rename'; end if;
+end $$;
+reset role;
+do $$ begin
+  insert into public.agent_branding (subject, agent_id) values ('featured:x', 'agent-b');
+  raise exception 'FAIL: 67 inconsistent subject accepted';
+exception when check_violation then null;
+end $$;
+do $$ begin
+  insert into public.agent_branding (subject, agent_id, icon_kind) values ('agent-b', 'agent-b', 'library');
+  raise exception 'FAIL: 67 library icon without key accepted';
+exception when check_violation then raise notice 'pass: 67 icon settings must be complete and consistent';
+end $$;
+rollback;
+
 select 'ALL RLS CHECKS PASSED' as result;

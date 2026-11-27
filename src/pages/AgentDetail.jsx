@@ -9,6 +9,7 @@ import AgentBlueprint from '@/components/agents/AgentBlueprint';
 import AgentStatusPill from '@/components/agents/AgentStatusPill';
 import AgentTaskRunner from '@/components/agents/AgentTaskRunner';
 import AgentHistory from '@/components/agents/AgentHistory';
+import { BrandIcon, useAgentBranding } from '@/components/agents/brandIcons';
 import ResearchPanel from '@/components/research/ResearchPanel';
 import WorkflowPanel from '@/components/workflow/WorkflowPanel';
 import { isResearchAgent } from '@/components/research/researchHelpers';
@@ -43,6 +44,7 @@ export default function AgentDetail() {
   const [historyKey, setHistoryKey] = useState(0);
   const billing = useAgentBilling();
   const { isHired } = billing;
+  const brandIcon = useAgentBranding().iconFor(agent?.id);
 
   useEffect(() => {
     let cancelled = false;
@@ -144,6 +146,7 @@ export default function AgentDetail() {
       <div className="mt-6 flex flex-col gap-5 border-b border-white/[0.07] pb-6 lg:flex-row lg:items-end lg:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-3">
+            {brandIcon && <BrandIcon icon={brandIcon} />}
             <h1 className="font-heading text-3xl font-semibold leading-tight tracking-[-0.02em] sm:text-4xl">{agent.name}</h1>
             <AgentStatusPill status={status} />
             {isHired(agent) && <HiredBadge />}

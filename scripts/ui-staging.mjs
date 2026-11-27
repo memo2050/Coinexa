@@ -92,6 +92,30 @@ async function navCheck(context, role, expect) {
   rows.push({ role, vp: 'desktop', path: `MENU (${Object.entries(expect).map(([k, v]) => `${k}=${v ? 'yes' : 'no'}`).join(' ')})`, finalPath: '', heading: '', ms: 0, blank: false, consoleErrors: problems, failed: [] });
 }
 
+// Admin name & icon editor: opens, suggests an icon (nothing is saved), and is closed.
+async function brandingEditorCheck(context) {
+  const page = await context.newPage();
+  const problems = [];
+  try {
+    await page.goto(`${BASE}/admin/agents`, { waitUntil: 'networkidle', timeout: 45000 });
+    await page.getByRole('button', { name: 'Name & icon' }).first().click({ timeout: 20000 });
+    const dialog = page.getByRole('dialog');
+    await dialog.waitFor({ timeout: 10000 });
+    await dialog.getByRole('button', { name: 'Suggest icon' }).click();
+    await dialog.getByText(/^Suggested:/).waitFor({ timeout: 60000 });
+    const options = await dialog.getByRole('option').count();
+    if (options < 30) problems.push(`only ${options} icons offered`);
+    const box = await dialog.locator('span.h-8.w-8').first().boundingBox();
+    if (!box || Math.round(box.width) !== 32 || Math.round(box.height) !== 32) problems.push(`icon box ${box?.width}×${box?.height}, expected 32×32`);
+    await page.screenshot({ path: `${OUT}/admin_branding_editor.jpg`, type: 'jpeg', quality: 80 });
+    await dialog.getByRole('button', { name: 'Cancel' }).click();
+  } catch (e) {
+    problems.push(String(e.message).slice(0, 150));
+  }
+  await page.close();
+  rows.push({ role: 'admin', vp: 'desktop', path: 'NAME & ICON EDITOR (opens, suggests, 32 px icons; nothing saved)', finalPath: '/admin/agents', heading: '', ms: 0, blank: false, consoleErrors: problems, failed: [] });
+}
+
 async function visit(context, role, vp, path) {
   const page = await context.newPage();
   const consoleErrors = [];
@@ -259,6 +283,11 @@ async function main() {
       const adminCtx = await browser.newContext({ viewport, isMobile: !!viewport.isMobile, hasTouch: !!viewport.hasTouch, storageState: adminState });
       for (const p of ADMIN) await visit(adminCtx, 'admin', vp, p);
       await adminCtx.close();
+    }
+    {
+      const b = await browser.newContext({ viewport: VIEWPORTS.desktop, storageState: adminState });
+      await brandingEditorCheck(b);
+      await b.close();
     }
     {
       // Last, because it signs the admin session out.

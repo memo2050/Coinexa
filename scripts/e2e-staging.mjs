@@ -10,6 +10,7 @@ import { makeEntities } from '../src/api/entityQuery.js';
 import { appendFileSync } from 'node:fs';
 import { simulatedPc, sampleScan } from './sim-scanner.mjs';
 import { signInWithLink, enrollTotp } from './test-auth.mjs';
+import { brandingChecks } from './e2e-branding.mjs';
 
 const URL_ = process.env.SUPABASE_URL;
 const ANON = process.env.SUPABASE_ANON_KEY;
@@ -281,6 +282,8 @@ async function main() {
     const r = await call(A.token, 'bootstrapOwnerWorkspace', {});
     return r.status === 200 && r.data.dry_run === true ? true : { fail: `status ${r.status} ${JSON.stringify(r.data).slice(0, 150)}` };
   });
+  // ---------------- Agent names and icons (admin only) ----------------
+  await brandingChecks({ check, call, admin, URL_, ANON, A, B, orgB, signInWithLink, createClient, opts });
   await admin.from('profiles').update({ role: 'user' }).eq('id', A.id);
 
   // Recruitment and Cyber Security Scan run below as hired agents (as after a payment).

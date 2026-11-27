@@ -3,9 +3,11 @@ import { ArrowUpRight, GripVertical, Wrench } from 'lucide-react';
 import AgentStatusPill from '@/components/agents/AgentStatusPill';
 import { displayStatus } from '@/components/agents/agentStatus';
 import { HIRED_GLOW, HiredBadge, useAgentBilling } from '@/components/agents/hired';
+import { BrandIcon, useAgentBranding } from '@/components/agents/brandIcons';
 
 export default function AgentBoardCard({ agent, dragging = false }) {
   const hired = useAgentBilling().isHired(agent);
+  const brandIcon = useAgentBranding().iconFor(agent.id);
   return (
     <article
       className={`rounded-xl border p-3.5 transition-all duration-200 ${
@@ -15,7 +17,10 @@ export default function AgentBoardCard({ agent, dragging = false }) {
       } ${hired && !dragging ? HIRED_GLOW : ''}`}
     >
       <div className="flex items-start justify-between gap-2">
-        <h3 className="min-w-0 truncate font-heading text-sm font-semibold text-white">{agent.name}</h3>
+        <div className="flex min-w-0 items-center gap-2">
+          {brandIcon && <BrandIcon icon={brandIcon} />}
+          <h3 className="min-w-0 truncate font-heading text-sm font-semibold text-white">{agent.name}</h3>
+        </div>
         <GripVertical className="h-3.5 w-3.5 shrink-0 text-slate-600" aria-hidden="true" />
       </div>
 
