@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useToast } from '@/components/ui/use-toast';
-import { ArrowRight, Bot, Briefcase, LayoutDashboard, LayoutGrid, Loader2, Plus, ShieldCheck, Sparkles } from 'lucide-react';
+import { ArrowRight, Bot, Briefcase, LayoutDashboard, LayoutGrid, Loader2, PencilLine, Plus, ShieldCheck, Sparkles } from 'lucide-react';
 import { base44 } from '@/api/base44Client';
 import Nav from '@/components/site/Nav';
 import Footer from '@/components/site/Footer';
@@ -12,12 +12,32 @@ import AgentBoard from '@/components/agents/AgentBoard';
 import { HIRED_GLOW, HiredBadge, useAgentBilling } from '@/components/agents/hired';
 import AgentBillingRow from '@/components/agents/AgentBillingRow';
 import { BrandGlyph, useAgentBranding } from '@/components/agents/brandIcons';
+import AgentEditDialog from '@/components/agents/AgentEditDialog';
+import { useAuth } from '@/lib/AuthContext';
 
 export default function Agents() {
   const billing = useAgentBilling();
   const branding = useAgentBranding();
   const recruitBrand = branding.featured('recruitment');
   const scanBrand = branding.featured('cyber-scan');
+  // Featured agents: admins can edit name, icon and description from their cards (the
+  // server re-checks admin role + two-step sign-in on save).
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
+  const [editingFeatured, setEditingFeatured] = useState(null);
+  const editFeatured = (key) => (
+    <button
+      type="button"
+      onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        setEditingFeatured(key);
+      }}
+      className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs font-semibold text-slate-300 transition-colors hover:border-sky-400/40 hover:text-white"
+    >
+      <PencilLine className="h-3.5 w-3.5" /> Edit
+    </button>
+  );
   const [agents, setAgents] = useState([]);
   const [counts, setCounts] = useState({ total: 0, active: 0, paused: 0 });
   const [loading, setLoading] = useState(true);
@@ -207,14 +227,17 @@ export default function Agents() {
                 <div className="flex flex-wrap items-center gap-2"><p className="text-[0.66rem] font-semibold uppercase tracking-[0.18em] text-sky-300">Featured agent</p>{billing.isFeaturedHired('recruitment') && <HiredBadge />}</div>
                 <p className="mt-1 font-heading text-lg font-semibold text-white">{recruitBrand.name || 'AI Recruitment & Talent Sourcing Agent'}</p>
                 <p className="mt-1 max-w-2xl text-sm text-slate-400">
-                  Find, evaluate, contact and negotiate with IT professionals worldwide — inside the budget you approve, with candidate consent and a full audit trail.
+                  {recruitBrand.description ?? 'Find, evaluate, contact and negotiate with IT professionals worldwide — inside the budget you approve, with candidate consent and a full audit trail.'}
                 </p>
                 <div className="max-w-md"><AgentBillingRow billing={billing} state={billing.forFeatured('recruitment')} featured="recruitment" name="AI Recruitment & Talent Sourcing" compact /></div>
               </div>
             </div>
-            <span className="inline-flex shrink-0 items-center gap-1.5 text-sm font-semibold text-sky-300">
-              Open recruitment <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
-            </span>
+            <div className="flex shrink-0 items-center gap-3">
+              {isAdmin && editFeatured('recruitment')}
+              <span className="inline-flex shrink-0 items-center gap-1.5 text-sm font-semibold text-sky-300">
+                Open recruitment <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+              </span>
+            </div>
           </Link>
 
           <Link
@@ -227,14 +250,17 @@ export default function Agents() {
                 <div className="flex flex-wrap items-center gap-2"><p className="text-[0.66rem] font-semibold uppercase tracking-[0.18em] text-sky-300">Featured agent</p>{billing.isFeaturedHired('cyber-scan') && <HiredBadge />}</div>
                 <p className="mt-1 font-heading text-lg font-semibold text-white">{scanBrand.name || 'Cyber Security Scan Agent'}</p>
                 <p className="mt-1 max-w-2xl text-sm text-slate-400">
-                  Scan your own local network from a linked Windows PC, find devices and open ports, and get a prioritised security report — authorised scans only.
+                  {scanBrand.description ?? 'Scan your own local network from a linked Windows PC, find devices and open ports, and get a prioritised security report — authorised scans only.'}
                 </p>
                 <div className="max-w-md"><AgentBillingRow billing={billing} state={billing.forFeatured('cyber-scan')} featured="cyber-scan" name="Cyber Security Scan" compact /></div>
               </div>
             </div>
-            <span className="inline-flex shrink-0 items-center gap-1.5 text-sm font-semibold text-sky-300">
-              Open network security <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
-            </span>
+            <div className="flex shrink-0 items-center gap-3">
+              {isAdmin && editFeatured('cyber-scan')}
+              <span className="inline-flex shrink-0 items-center gap-1.5 text-sm font-semibold text-sky-300">
+                Open network security <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+              </span>
+            </div>
           </Link>
 
           <div className="mt-10">
@@ -281,6 +307,10 @@ export default function Agents() {
           </div>
         </div>
       </main>
+
+      {editingFeatured && (
+        <AgentEditDialog subject={`featured:${editingFeatured}`} onClose={() => setEditingFeatured(null)} onSaved={() => setEditingFeatured(null)} />
+      )}
 
       <Footer />
     </div>

@@ -1,20 +1,22 @@
-// Agent names and icons: platform admin only (admin role + two-step sign-in, checked
-// by the shared admin guard on every request, before anything is read).
+// Agent editing from the AI Agents pages: platform admin only (admin role + two-step
+// sign-in, checked by the shared admin guard on every request, before anything is read).
 //
-//   list    : every agent (all workspaces) and the featured agents, with current name,
-//             default name, icon and the last suggestion
+//   get     : one agent's editable fields (name, icon, description, category, status),
+//             its default name and icon, and the last icon suggestion
+//   list    : every agent (all workspaces) and the featured agents
 //   suggest : suggests ONE icon from the approved library for an agent's role and
 //             industry (AI, constrained to the library; keyword rules if AI is
 //             unavailable). Stored, nothing applied: the admin approves by saving.
-//   save    : new name and/or icon (library key or uploaded PNG/WebP/SVG, validated)
-//   reset   : back to the default name and no custom icon
+//   save    : name, icon (library key or uploaded PNG/WebP/SVG, validated), description,
+//             category and status (the last two for workspace agents only)
+//   reset   : back to the default name and icon (featured agents: description too)
 // Every save and reset is written to the audit log.
 import { serveBase44 } from '../_shared/http.ts';
 import { service } from '../_shared/base44shim.ts';
 import { adminContext } from '../_shared/adminGuard.ts';
 import { ICONS, ICON_KEYS, suggestByRules } from '../_shared/agentIcons.ts';
 import { validateIcon } from '../_shared/iconUpload.ts';
-import { FEATURED, cleanName } from '../_shared/agentBrandingLogic.ts';
+import { FEATURED, STATUSES, cleanName, cleanDescription, cleanCategory } from '../_shared/agentBrandingLogic.ts';
 
 type Row = Record<string, any>;
 const db = () => service();
@@ -32,7 +34,7 @@ async function subjectInfo(subject: string) {
     const f = FEATURED[subject];
     return { subject, agent: null as Row | null, defaultName: f.name, currentName: null as string | null, text: `${f.name}. ${f.text}`, plan: f.plan, org: null as string | null };
   }
-  const agent = await must(db().from('agents').select('id, name, organization_id, specialization, industry, role, summary, catalog_key').eq('id', subject).maybeSingle()) as Row | null;
+  const agent = await must(db().from('agents').select('id, name, status, organization_id, specialization, industry, role, summary, catalog_key').eq('id', subject).maybeSingle()) as Row | null;
   if (!agent) throw fail('Agent not found.', 404);
   const text = [agent.name, agent.specialization, agent.industry, agent.role, agent.summary].filter(Boolean).join('. ').slice(0, 1500);
   return { subject, agent, defaultName: null, currentName: agent.name, text, plan: agent.catalog_key || null, org: agent.organization_id || null };
@@ -76,6 +78,21 @@ async function list() {
       kind: 'agent', name: a.name, defaultName: byId.get(a.id)?.default_name || a.name, defaultIcon: null, status: a.status,
       specialization: a.specialization || a.industry || '', organization: orgName.get(a.organization_id) || 'Personal' })),
   };
+}
+
+async function getOne(subject: string) {
+  const info = await subjectInfo(subject);
+  const b = await must(db().from('agent_branding').select('*').eq('subject', subject).maybeSingle()) as Row | null;
+  const icon = b?.icon_kind ? { kind: b.icon_kind, key: b.icon_key, path: b.icon_path, version: b.icon_version } : null;
+  const suggestion = b?.suggested_icon ? { icon: b.suggested_icon, reason: b.suggested_reason, source: b.suggested_source } : null;
+  if (!info.agent) {
+    const f = FEATURED[subject];
+    return { subject, kind: 'featured', name: b?.name || f.name, defaultName: f.name, defaultIcon: f.icon, icon, suggestion,
+      description: b?.description ?? f.description, defaultDescription: f.description };
+  }
+  const a = info.agent;
+  return { subject, kind: 'agent', name: a.name, defaultName: b?.default_name || a.name, defaultIcon: null, icon, suggestion,
+    description: a.summary || '', category: a.specialization || '', status: a.status };
 }
 
 async function suggest(ctx: Row, subject: string) {
@@ -146,14 +163,39 @@ async function save(user: Row, body: Row) {
   }
 
   if (newName) changes.unshift(`name: "${oldName}" → "${newName}"`);
+
+  // Description, category and status.
+  const agentPatch: Row = {};
+  if (body.description !== undefined && body.description !== null) {
+    const d = cleanDescription(body.description);
+    if (info.agent) {
+      if (d !== (info.agent.summary || '')) { agentPatch.summary = d || null; changes.push('description updated'); }
+    } else if (d !== (existing?.description ?? FEATURED[subject].description)) {
+      row.description = d; changes.push('description updated');
+    }
+  }
+  if (body.category !== undefined && body.category !== null) {
+    if (!info.agent) throw fail('Featured agents have no category to edit.');
+    const c = cleanCategory(body.category);
+    if (c !== (info.agent.specialization || '')) { agentPatch.specialization = c; changes.push(`category: "${info.agent.specialization || ''}" → "${c}"`); }
+  }
+  if (body.status !== undefined && body.status !== null) {
+    if (!info.agent) throw fail('Featured agents have no status to edit.');
+    const st = String(body.status);
+    if (!STATUSES.includes(st)) throw fail('Status must be draft, active or paused.');
+    if (st !== info.agent.status) { agentPatch.status = st; changes.push(`status: ${info.agent.status} → ${st}`); }
+  }
   if (!changes.length) return { saved: false, message: 'Nothing changed.' };
 
   try {
     if (newName && info.agent) {
-      await must(db().from('agents').update({ name: newName }).eq('id', subject));
+      agentPatch.name = newName;
       if (!existing?.default_name) row.default_name = oldName;
     } else if (newName) {
       row.name = newName;
+    }
+    if (info.agent && Object.keys(agentPatch).length) {
+      await must(db().from('agents').update({ ...agentPatch, updated_date: new Date().toISOString() }).eq('id', subject));
     }
     if (existing) await must(db().from('agent_branding').update(row).eq('subject', subject));
     else await must(db().from('agent_branding').insert({ subject, agent_id: info.agent ? subject : null, ...row }));
@@ -163,13 +205,13 @@ async function save(user: Row, body: Row) {
   }
   if (existing?.icon_path && existing.icon_path !== row.icon_path && 'icon_kind' in row) await removeUpload(existing.icon_path);
   await audit(user, info.org, 'agent.branding_updated', subject, changes.join('; '));
-  return { saved: true, changes };
+  return { saved: true, changes, agent: await getOne(subject) };
 }
 
 async function reset(user: Row, subject: string) {
   const info = await subjectInfo(subject);
   const existing = await must(db().from('agent_branding').select('*').eq('subject', subject).maybeSingle()) as Row | null;
-  if (!existing || (!existing.icon_kind && !existing.name && !existing.default_name)) return { reset: false, message: 'Already using the default name and icon.' };
+  if (!existing || (!existing.icon_kind && !existing.name && !existing.default_name && existing.description == null)) return { reset: false, message: 'Already using the default name and icon.' };
   const changes: string[] = [];
   if (info.agent && existing.default_name && existing.default_name !== info.agent.name) {
     await must(db().from('agents').update({ name: existing.default_name }).eq('id', subject));
@@ -177,12 +219,13 @@ async function reset(user: Row, subject: string) {
   }
   if (!info.agent && existing.name) changes.push(`name: "${existing.name}" → "${info.defaultName}"`);
   if (existing.icon_kind) changes.push('icon → default');
+  if (!info.agent && existing.description != null) changes.push('description → default');
   // The suggestion is kept (it is not a setting); name and icon settings are cleared.
-  await must(db().from('agent_branding').update({ name: null, default_name: null, icon_kind: null, icon_key: null, icon_path: null,
+  await must(db().from('agent_branding').update({ name: null, default_name: null, description: null, icon_kind: null, icon_key: null, icon_path: null,
     updated_by: user.id, updated_by_email: user.email, updated_at: new Date().toISOString() }).eq('subject', subject));
   await removeUpload(existing.icon_path);
   await audit(user, info.org, 'agent.branding_reset', subject, changes.join('; ') || 'reset to defaults');
-  return { reset: true, changes };
+  return { reset: true, changes, agent: await getOne(subject) };
 }
 
 serveBase44('adminAgentBranding', async (req: Request) => {
@@ -192,6 +235,7 @@ serveBase44('adminAgentBranding', async (req: Request) => {
     const body = await req.json().catch(() => ({})) as Row;
     const action = String(body.action || 'list');
     const user = ctx.user as Row;
+    if (action === 'get') return Response.json(await getOne(String(body.subject || '')));
     if (action === 'list') return Response.json(await list());
     if (action === 'suggest') return Response.json(await suggest(ctx, String(body.subject || '')));
     if (action === 'save') return Response.json(await save(user, body));

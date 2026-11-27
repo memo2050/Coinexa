@@ -92,28 +92,87 @@ async function navCheck(context, role, expect) {
   rows.push({ role, vp: 'desktop', path: `MENU (${Object.entries(expect).map(([k, v]) => `${k}=${v ? 'yes' : 'no'}`).join(' ')})`, finalPath: '', heading: '', ms: 0, blank: false, consoleErrors: problems, failed: [] });
 }
 
-// Admin name & icon editor: opens, suggests an icon (nothing is saved), and is closed.
-async function brandingEditorCheck(context) {
+// Agent editing on the AI Agents pages (admins only). As the admin: open the agent from
+// /agents, Edit, Cancel (nothing saved), Edit again, change name, description, category,
+// status and icon, Save, reload the page and check every change persisted, then check
+// the catalog card. As a user: no Edit button. Command Center: no editing controls.
+async function agentEditCheck(context, agentId) {
+  const page = await context.newPage();
+  const problems = [];
+  const edits = { name: 'Nova Prime (UI test)', description: 'Answers customer questions and drafts refunds.', category: 'Customer Care', status: 'paused' };
+  try {
+    await page.goto(`${BASE}/agents`, { waitUntil: 'networkidle', timeout: 45000 });
+    // Open the agent from its card on the AI Agents page.
+    const cardLink = page.locator('article', { hasText: 'Nova (UI test)' }).locator(`a[href$="/agents/${agentId}"]`).first();
+    if (await cardLink.count()) await cardLink.click();
+    else { problems.push('no link to the agent on its card'); await page.goto(`${BASE}/agents/${agentId}`); }
+    await page.waitForURL(new RegExp(`/agents/${agentId}`), { timeout: 20000 });
+    await page.getByRole('button', { name: 'Edit', exact: true }).click();
+    let dialog = page.getByRole('dialog');
+    await dialog.getByLabel('Agent name').waitFor({ timeout: 20000 });
+    await dialog.getByLabel('Agent name').fill('Should not be saved');
+    await dialog.getByRole('button', { name: 'Cancel' }).click();
+    await page.reload({ waitUntil: 'networkidle' });
+    if (!(await page.getByRole('heading', { level: 1, name: 'Nova (UI test)' }).count())) problems.push('Cancel changed the name');
+
+    await page.getByRole('button', { name: 'Edit', exact: true }).click();
+    dialog = page.getByRole('dialog');
+    await dialog.getByLabel('Agent name').waitFor({ timeout: 20000 });
+    await dialog.getByLabel('Agent name').fill(edits.name);
+    await dialog.getByLabel('Description').fill(edits.description);
+    await dialog.getByLabel('Category').fill(edits.category);
+    await dialog.getByLabel('Status').selectOption(edits.status);
+    await dialog.getByRole('option', { name: 'Customer support' }).click();
+    const box = await dialog.locator('span.h-8.w-8').first().boundingBox();
+    if (!box || Math.round(box.width) !== 32) problems.push(`icon ${box?.width}px, expected 32`);
+    await page.screenshot({ path: `${OUT}/agent_edit_dialog.jpg`, type: 'jpeg', quality: 80 });
+    await dialog.getByRole('button', { name: 'Save changes' }).click();
+    await dialog.waitFor({ state: 'detached', timeout: 30000 });
+
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.waitForTimeout(1500);
+    const main = page.locator('main');
+    if (!(await page.getByRole('heading', { level: 1, name: edits.name }).count())) problems.push('name not persisted after reload');
+    if (!(await main.getByText(edits.description).count())) problems.push('description not persisted');
+    if (!(await main.getByText(new RegExp(`^${edits.category}`)).count())) problems.push('category not persisted');
+    if (!(await main.getByText(/^Paused$/i).count())) problems.push('status not persisted');
+    if (!(await main.locator('h1').locator('xpath=..').locator('span.h-8.w-8').count())) problems.push('icon not shown on the agent page');
+    await page.screenshot({ path: `${OUT}/agent_after_edit.jpg`, type: 'jpeg', quality: 80 });
+
+    await page.goto(`${BASE}/agents`, { waitUntil: 'networkidle' });
+    await page.waitForTimeout(1500);
+    const card = page.locator('article', { hasText: edits.name }).first();
+    if (!(await card.count())) problems.push('catalog card does not show the new name');
+    else {
+      if (!(await card.getByText(edits.description).count())) problems.push('catalog card description not updated');
+      if (!(await card.locator('span.h-8.w-8').count())) problems.push('catalog card has no icon');
+    }
+    if (!(await page.getByRole('button', { name: 'Edit', exact: true }).count())) problems.push('featured cards have no Edit for the admin');
+    await page.screenshot({ path: `${OUT}/agents_catalog_after_edit.jpg`, type: 'jpeg', quality: 80, fullPage: false });
+
+    await page.goto(`${BASE}/admin/agents`, { waitUntil: 'networkidle' });
+    if (await page.getByRole('button', { name: /Name & icon|Edit/ }).count()) problems.push('editing controls found in the Command Center');
+  } catch (e) {
+    problems.push(String(e.message).slice(0, 180));
+  }
+  await page.close();
+  rows.push({ role: 'admin', vp: 'desktop', path: 'AGENT EDIT on /agents (cancel, save, reload, persisted, catalog, none in Command Center)', finalPath: '', heading: '', ms: 0, blank: false, consoleErrors: problems, failed: [] });
+}
+
+async function noEditForUser(context, agentId) {
   const page = await context.newPage();
   const problems = [];
   try {
-    await page.goto(`${BASE}/admin/agents`, { waitUntil: 'networkidle', timeout: 45000 });
-    await page.getByRole('button', { name: 'Name & icon' }).first().click({ timeout: 20000 });
-    const dialog = page.getByRole('dialog');
-    await dialog.waitFor({ timeout: 10000 });
-    await dialog.getByRole('button', { name: 'Suggest icon' }).click();
-    await dialog.getByText(/^Suggested:/).waitFor({ timeout: 60000 });
-    const options = await dialog.getByRole('option').count();
-    if (options < 30) problems.push(`only ${options} icons offered`);
-    const box = await dialog.locator('span.h-8.w-8').first().boundingBox();
-    if (!box || Math.round(box.width) !== 32 || Math.round(box.height) !== 32) problems.push(`icon box ${box?.width}×${box?.height}, expected 32×32`);
-    await page.screenshot({ path: `${OUT}/admin_branding_editor.jpg`, type: 'jpeg', quality: 80 });
-    await dialog.getByRole('button', { name: 'Cancel' }).click();
+    await page.goto(`${BASE}/agents/${agentId}`, { waitUntil: 'networkidle', timeout: 45000 });
+    await page.getByRole('heading', { level: 1 }).waitFor({ timeout: 20000 });
+    if (await page.getByRole('button', { name: 'Edit', exact: true }).count()) problems.push('Edit shown to a regular user');
+    await page.goto(`${BASE}/agents`, { waitUntil: 'networkidle' });
+    if (await page.getByRole('button', { name: 'Edit', exact: true }).count()) problems.push('featured Edit shown to a regular user');
   } catch (e) {
-    problems.push(String(e.message).slice(0, 150));
+    problems.push(String(e.message).slice(0, 180));
   }
   await page.close();
-  rows.push({ role: 'admin', vp: 'desktop', path: 'NAME & ICON EDITOR (opens, suggests, 32 px icons; nothing saved)', finalPath: '/admin/agents', heading: '', ms: 0, blank: false, consoleErrors: problems, failed: [] });
+  rows.push({ role: 'user', vp: 'desktop', path: 'AGENT EDIT hidden for regular users', finalPath: '', heading: '', ms: 0, blank: false, consoleErrors: problems, failed: [] });
 }
 
 async function visit(context, role, vp, path) {
@@ -271,6 +330,7 @@ async function main() {
     {
       const u = await browser.newContext({ viewport: VIEWPORTS.desktop, storageState: state });
       await navCheck(u, 'user', { signIn: false, security: true, signOut: true, admin: false });
+      await noEditForUser(u, agent.id);
       await u.close();
     }
     await admin.from('profiles').update({ role: 'admin' }).eq('id', userId);
@@ -286,7 +346,7 @@ async function main() {
     }
     {
       const b = await browser.newContext({ viewport: VIEWPORTS.desktop, storageState: adminState });
-      await brandingEditorCheck(b);
+      await agentEditCheck(b, agent.id);
       await b.close();
     }
     {

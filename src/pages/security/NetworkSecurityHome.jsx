@@ -6,6 +6,7 @@ import Footer from '@/components/site/Footer';
 import SectionHeading from '@/components/site/SectionHeading';
 import { securityScan, errorText } from '@/api/securityScan';
 import { ErrorNote, Loading, Panel, Stat, ghostBtn, primaryBtn, when } from '@/components/recruitment/ui';
+import { useAgentBranding } from '@/components/agents/brandIcons';
 
 // The Windows scanner is published to /downloads only after it passes the Windows tests.
 function ScannerDownload() {
@@ -30,6 +31,7 @@ function ScannerDownload() {
 }
 
 export default function NetworkSecurityHome() {
+  const featuredName = useAgentBranding().featured('cyber-scan').name;
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -86,7 +88,7 @@ export default function NetworkSecurityHome() {
         <div className="relative mx-auto w-full max-w-6xl space-y-6 px-5 sm:px-8">
           <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
             <SectionHeading
-              eyebrow="Cyber Security Scan Agent"
+              eyebrow={featuredName || 'Cyber Security Scan Agent'}
               title="Network"
               highlight="security"
               description="Scan your own local network from a linked Windows PC, see every device and open port, and get a clear, prioritised security report."

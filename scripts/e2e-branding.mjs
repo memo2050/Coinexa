@@ -53,12 +53,13 @@ export async function brandingChecks({ check, call, admin, URL_, ANON, A, B, org
     });
     await check('branding', 'a regular user (the agent\'s own owner) is refused for every action', async () => {
       const bad = [];
-      for (const body of [{ action: 'list' }, { action: 'suggest', subject: agent.id }, { action: 'save', subject: agent.id, name: 'Hijack', icon: { kind: 'library', key: 'bot' } }, { action: 'reset', subject: agent.id }]) {
+      for (const body of [{ action: 'get', subject: agent.id }, { action: 'list' }, { action: 'suggest', subject: agent.id }, { action: 'save', subject: agent.id, description: 'x', category: 'Hijacked', status: 'paused' }, { action: 'save', subject: agent.id, name: 'Hijack', icon: { kind: 'library', key: 'bot' } }, { action: 'reset', subject: agent.id }]) {
         const r = await call(B.token, FN, body);
         if (r.status !== 403) bad.push(`${body.action}:${r.status}`);
       }
       const after = (await admin.from('agents').select('name').eq('id', agent.id).single()).data.name;
-      return !bad.length && after === agent.name && !(await row(agent.id)) ? 'list, suggest, save, reset all HTTP 403; nothing changed' : { fail: `${bad.join(', ')} name=${after}` };
+      const st = (await admin.from('agents').select('status, summary').eq('id', agent.id).single()).data;
+      return !bad.length && after === agent.name && st.status === 'active' && !(await row(agent.id)) ? 'get, list, suggest, save (name, description, category, status), reset: all HTTP 403; nothing changed' : { fail: `${bad.join(', ')} name=${after} status=${st.status}` };
     });
     await check('branding', 'an admin signed in without two-step verification is refused', async () => {
       const c = createClient(URL_, ANON, opts);
@@ -99,6 +100,26 @@ export async function brandingChecks({ check, call, admin, URL_, ANON, A, B, org
       const { data: logs } = await admin.from('audit_logs').select('action, detail, actor_email').eq('target_id', agent.id).eq('action', 'agent.branding_updated');
       const ok = r.status === 200 && a.name === 'Smile Scheduler' && b.icon_kind === 'library' && b.icon_key === suggested && b.default_name === agent.name && logs.length === 1 && logs[0].actor_email === A.email;
       return ok ? `name "Smile Scheduler", icon ${suggested}; audit: ${logs[0].detail}` : { fail: JSON.stringify({ r: r.data, a, b, logs }) };
+    });
+    await check('branding', 'admin edits description, category and status; get returns them; audited', async () => {
+      const r = await call(A.token, FN, { action: 'save', subject: agent.id, description: 'Sends appointment reminders\nand reschedules visits.', category: 'Dental Scheduling Agent', status: 'paused' });
+      const a = (await admin.from('agents').select('summary, specialization, status, workflow_graph, system_instructions').eq('id', agent.id).single()).data;
+      const g = await call(A.token, FN, { action: 'get', subject: agent.id });
+      const { data: logs } = await admin.from('audit_logs').select('detail').eq('target_id', agent.id).eq('action', 'agent.branding_updated').order('created_date', { ascending: false }).limit(1);
+      const ok = r.status === 200 && a.summary === 'Sends appointment reminders\nand reschedules visits.' && a.specialization === 'Dental Scheduling Agent' && a.status === 'paused'
+        && g.data.description === a.summary && g.data.category === a.specialization && g.data.status === 'paused';
+      // back to active for the rest of the checks
+      await call(A.token, FN, { action: 'save', subject: agent.id, status: 'active' });
+      return ok ? `saved and read back; audit: ${logs[0].detail}` : { fail: JSON.stringify({ r: r.data, a, g: g.data }) };
+    });
+    await check('branding', 'invalid status, over-long description and featured-only limits are refused', async () => {
+      const s1 = await call(A.token, FN, { action: 'save', subject: agent.id, status: 'deleted' });
+      const s2 = await call(A.token, FN, { action: 'save', subject: agent.id, description: 'x'.repeat(601) });
+      const s3 = await call(A.token, FN, { action: 'save', subject: agent.id, description: '<script>alert(1)</script>' });
+      const s4 = await call(A.token, FN, { action: 'save', subject: featured, status: 'paused' });
+      const s5 = await call(A.token, FN, { action: 'save', subject: featured, category: 'Other' });
+      const statuses = [s1, s2, s3, s4, s5].map((x) => x.status);
+      return statuses.every((x) => x === 400) ? `${s1.data.error} | ${s2.data.error} | ${s4.data.error}` : { fail: statuses.join(',') };
     });
     await check('branding', 'the agent\'s workspace sees the new name and icon (read-only)', async () => {
       const { data: seen } = await B.client.from('agent_branding').select('icon_kind, icon_key').eq('subject', agent.id).maybeSingle();
@@ -158,12 +179,12 @@ export async function brandingChecks({ check, call, admin, URL_, ANON, A, B, org
       return ok ? `name back to "${a.name}", no custom icon, file deleted from storage; audit: ${logs[0].detail}` : { fail: JSON.stringify({ fileStored, icon: b.icon_kind, logs: logs.length, name: a.name }) };
     });
     await check('branding', 'featured agent: admin renames and sets an icon, the catalog reads it, reset restores', async () => {
-      const s = await call(A.token, FN, { action: 'save', subject: featured, name: 'Network Guard Agent', icon: { kind: 'library', key: 'lock' } });
-      const { data: seen } = await B.client.from('agent_branding').select('name, icon_key').eq('subject', featured).single();
+      const s = await call(A.token, FN, { action: 'save', subject: featured, name: 'Network Guard Agent', description: 'Checks your office network.', icon: { kind: 'library', key: 'lock' } });
+      const { data: seen } = await B.client.from('agent_branding').select('name, description, icon_key').eq('subject', featured).single();
       const r = await call(A.token, FN, { action: 'reset', subject: featured });
       const after = await row(featured);
-      const ok = s.status === 200 && seen.name === 'Network Guard Agent' && seen.icon_key === 'lock' && r.status === 200 && !after.name && !after.icon_kind;
-      return ok ? 'customers saw "Network Guard Agent" + lock; reset back to default' : { fail: JSON.stringify({ s: s.data, seen, r: r.data, after }) };
+      const ok = s.status === 200 && seen.name === 'Network Guard Agent' && seen.description === 'Checks your office network.' && seen.icon_key === 'lock' && r.status === 200 && !after.name && !after.icon_kind && after.description === null;
+      return ok ? 'customers saw the new name, description and lock icon; reset back to default' : { fail: JSON.stringify({ s: s.data, seen, r: r.data, after }) };
     });
   } finally {
     // Put the featured agent back exactly as it was before the test, remove the test agent.

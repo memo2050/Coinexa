@@ -3,9 +3,10 @@ import { Check, Loader2, RotateCcw, Sparkles, Upload, X } from 'lucide-react';
 import { base44 } from '@/api/base44Client';
 import { APPROVED_ICONS, BrandIcon, iconLabel, refreshAgentBranding } from '@/components/agents/brandIcons';
 
-// Super admin editor for one agent's name and icon. The suggestion is only a proposal:
-// nothing changes until the admin presses Save. Every request is re-checked on the
-// server (admin role + two-step sign-in), and uploads are validated there again.
+// Edit an agent from the AI Agents pages (platform admins only; the Edit button is shown
+// to admins, and every request is re-checked on the server: admin role + two-step
+// sign-in). Name, icon, description, category and status. The icon suggestion is only a
+// proposal: nothing changes until Save. Uploads are validated again on the server.
 const MAX_RASTER = 256 * 1024;
 const MAX_SVG = 64 * 1024;
 const TYPES = { 'image/png': 'PNG', 'image/webp': 'WebP', 'image/svg+xml': 'SVG' };
@@ -54,8 +55,49 @@ async function checkFile(file) {
   return { dataUrl, label: `${TYPES[type]} · ${Math.max(1, Math.round(file.size / 1024))} KB${type !== 'image/svg+xml' ? ` · ${size.width} × ${size.height} px` : ''}` };
 }
 
-export default function AgentBrandingEditor({ item, onClose, onSaved }) {
+export default function AgentEditDialog({ subject, onClose, onSaved }) {
+  const [item, setItem] = useState(null);
+  const [loadError, setLoadError] = useState('');
+  useEffect(() => {
+    call({ action: 'get', subject }).then(setItem).catch((err) => setLoadError(err.message));
+  }, [subject]);
+  if (!item) {
+    return (
+      <Frame onClose={onClose} title="Edit agent">
+        <div className="px-5 py-8 text-sm">
+          {loadError ? <p className="rounded-xl border border-rose-400/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-200">{loadError}</p>
+            : <span className="inline-flex items-center gap-2 text-slate-400"><Loader2 className="h-4 w-4 animate-spin" /> Loading…</span>}
+        </div>
+      </Frame>
+    );
+  }
+  return <Editor item={item} onClose={onClose} onSaved={onSaved} />;
+}
+
+function Frame({ title, onClose, children }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/70 p-4 sm:items-center" role="dialog" aria-modal="true" aria-label={title}>
+      <div className="w-full max-w-2xl rounded-2xl border border-white/10 bg-[#0a0f19] text-left shadow-2xl">
+        <div className="flex items-center justify-between border-b border-white/[0.07] px-5 py-4">
+          <p className="font-heading text-lg font-semibold text-white">{title}</p>
+          <button type="button" onClick={onClose} className="rounded-lg p-1.5 text-slate-400 hover:bg-white/[0.06] hover:text-white" aria-label="Close">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+const field = 'mt-1.5 w-full rounded-xl border border-white/10 bg-[#05070a]/70 px-3 py-2 text-sm text-white focus:border-sky-400/60 focus:outline-none';
+
+function Editor({ item, onClose, onSaved }) {
+  const isAgent = item.kind === 'agent';
   const [name, setName] = useState(item.name);
+  const [description, setDescription] = useState(item.description || '');
+  const [category, setCategory] = useState(item.category || '');
+  const [status, setStatus] = useState(item.status || 'draft');
   const [choice, setChoice] = useState({ kind: 'keep' });
   const [suggestion, setSuggestion] = useState(item.suggestion);
   const [busy, setBusy] = useState('');
@@ -76,8 +118,11 @@ export default function AgentBrandingEditor({ item, onClose, onSaved }) {
           : item.icon || (item.defaultIcon ? { kind: 'library', key: item.defaultIcon } : null);
 
   const nameChanged = name.replace(/\s+/g, ' ').trim() !== item.name;
-  const dirty = nameChanged || choice.kind !== 'keep';
-  const customised = Boolean(item.icon) || item.name !== item.defaultName;
+  const descriptionChanged = description.trim() !== (item.description || '').trim();
+  const categoryChanged = isAgent && category.replace(/\s+/g, ' ').trim() !== (item.category || '');
+  const statusChanged = isAgent && status !== item.status;
+  const dirty = nameChanged || descriptionChanged || categoryChanged || statusChanged || choice.kind !== 'keep';
+  const customised = Boolean(item.icon) || item.name !== item.defaultName || (!isAgent && item.description !== item.defaultDescription);
 
   const suggest = async () => {
     setBusy('suggest');
@@ -107,9 +152,17 @@ export default function AgentBrandingEditor({ item, onClose, onSaved }) {
     setError('');
     try {
       const icon = choice.kind === 'upload' ? { kind: 'upload', data: choice.dataUrl } : choice;
-      await call({ action: 'save', subject: item.subject, name: nameChanged ? name : undefined, icon });
+      const res = await call({
+        action: 'save',
+        subject: item.subject,
+        name: nameChanged ? name : undefined,
+        description: descriptionChanged ? description : undefined,
+        category: categoryChanged ? category : undefined,
+        status: statusChanged ? status : undefined,
+        icon,
+      });
       await refreshAgentBranding();
-      onSaved();
+      onSaved(res.agent);
     } catch (err) {
       setError(err.message);
       setBusy('');
@@ -120,9 +173,9 @@ export default function AgentBrandingEditor({ item, onClose, onSaved }) {
     setBusy('reset');
     setError('');
     try {
-      await call({ action: 'reset', subject: item.subject });
+      const res = await call({ action: 'reset', subject: item.subject });
       await refreshAgentBranding();
-      onSaved();
+      onSaved(res.agent);
     } catch (err) {
       setError(err.message);
       setBusy('');
@@ -131,12 +184,12 @@ export default function AgentBrandingEditor({ item, onClose, onSaved }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/70 p-4 sm:items-center" role="dialog" aria-modal="true" aria-labelledby="branding-title">
-      <div className="w-full max-w-2xl rounded-2xl border border-white/10 bg-[#0a0f19] shadow-2xl">
+      <div className="w-full max-w-2xl rounded-2xl border border-white/10 bg-[#0a0f19] text-left shadow-2xl">
         <div className="flex items-start justify-between gap-3 border-b border-white/[0.07] px-5 py-4">
           <div className="min-w-0">
-            <p className="text-[0.62rem] uppercase tracking-[0.16em] text-sky-300">Super admin · name & icon</p>
+            <p className="text-[0.62rem] uppercase tracking-[0.16em] text-sky-300">Edit agent · admin</p>
             <h2 id="branding-title" className="mt-1 truncate font-heading text-lg font-semibold text-white">{item.name}</h2>
-            <p className="mt-0.5 truncate text-[0.7rem] text-slate-500">{item.organization}{item.kind === 'featured' ? ' · featured agent' : ''}</p>
+            <p className="mt-0.5 truncate text-[0.7rem] text-slate-500">{isAgent ? 'Changes apply wherever this agent appears' : 'Featured agent · shown to every workspace'}</p>
           </div>
           <button type="button" onClick={onClose} disabled={Boolean(busy)} className="rounded-lg p-1.5 text-slate-400 hover:bg-white/[0.06] hover:text-white" aria-label="Close">
             <X className="h-4 w-4" />
@@ -146,9 +199,33 @@ export default function AgentBrandingEditor({ item, onClose, onSaved }) {
         <div className="space-y-5 px-5 py-4">
           <label className="block">
             <span className="text-xs font-semibold text-slate-300">Agent name</span>
-            <input value={name} onChange={(e) => setName(e.target.value)} maxLength={80} className="mt-1.5 w-full rounded-xl border border-white/10 bg-[#05070a]/70 px-3 py-2 text-sm text-white focus:border-sky-400/60 focus:outline-none" />
+            <input value={name} onChange={(e) => setName(e.target.value)} maxLength={80} className={field} />
             <span className="mt-1 block text-[0.66rem] text-slate-500">Default: {item.defaultName} · 2–80 characters</span>
           </label>
+
+          <label className="block">
+            <span className="text-xs font-semibold text-slate-300">Description</span>
+            <textarea value={description} onChange={(e) => setDescription(e.target.value)} maxLength={600} rows={3} className={`${field} resize-y`} />
+            <span className="mt-1 block text-[0.66rem] text-slate-500">{description.length}/600 characters</span>
+          </label>
+
+          {isAgent && (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className="block">
+                <span className="text-xs font-semibold text-slate-300">Category</span>
+                <input value={category} onChange={(e) => setCategory(e.target.value)} maxLength={60} className={field} />
+                <span className="mt-1 block text-[0.66rem] text-slate-500">Shown under the name on agent cards</span>
+              </label>
+              <label className="block">
+                <span className="text-xs font-semibold text-slate-300">Status</span>
+                <select value={status} onChange={(e) => setStatus(e.target.value)} className={field}>
+                  <option value="draft">Draft</option>
+                  <option value="active">Active</option>
+                  <option value="paused">Paused</option>
+                </select>
+              </label>
+            </div>
+          )}
 
           <div>
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -202,10 +279,11 @@ export default function AgentBrandingEditor({ item, onClose, onSaved }) {
               {shownIcon ? <BrandIcon icon={shownIcon} /> : <span className="inline-grid h-8 w-8 place-items-center rounded-lg border border-dashed border-white/15 text-[0.55rem] text-slate-600">none</span>}
               <div className="min-w-0">
                 <p className="truncate font-heading text-lg font-semibold text-white">{name.replace(/\s+/g, ' ').trim() || '—'}</p>
-                <p className="truncate text-xs uppercase tracking-[0.14em] text-slate-500">{item.specialization || (item.kind === 'featured' ? 'Featured agent' : 'General')}</p>
+                <p className="truncate text-xs uppercase tracking-[0.14em] text-slate-500">{isAgent ? category.trim() || 'General' : 'Featured agent'}</p>
               </div>
             </div>
-            <p className="mt-3 text-[0.62rem] text-slate-500">Icons are shown at 32 × 32 px on agent cards. {choice.kind === 'keep' ? 'Current icon.' : 'Not saved yet.'}</p>
+            {description.trim() && <p className="mt-2 line-clamp-2 text-sm text-slate-400">{description.trim()}</p>}
+            <p className="mt-3 text-[0.62rem] text-slate-500">Icons are shown at 32 × 32 px on agent cards. {dirty ? 'Not saved yet.' : 'Current settings.'}</p>
           </div>
 
           {error && <p className="rounded-xl border border-rose-400/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-200">{error}</p>}
@@ -214,7 +292,7 @@ export default function AgentBrandingEditor({ item, onClose, onSaved }) {
         <div className="flex flex-wrap items-center justify-between gap-2 border-t border-white/[0.07] px-5 py-3.5">
           {confirmReset ? (
             <div className="flex items-center gap-2 text-xs text-slate-300">
-              Reset to “{item.defaultName}” and the default icon?
+              Reset to “{item.defaultName}”{isAgent ? '' : ', the default description'} and the default icon?
               <button type="button" onClick={reset} disabled={Boolean(busy)} className="rounded-full bg-rose-500/80 px-3 py-1 font-semibold text-white hover:bg-rose-500">
                 {busy === 'reset' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Reset'}
               </button>
@@ -222,7 +300,7 @@ export default function AgentBrandingEditor({ item, onClose, onSaved }) {
             </div>
           ) : (
             <button type="button" onClick={() => setConfirmReset(true)} disabled={!customised || Boolean(busy)} className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-white disabled:opacity-40">
-              <RotateCcw className="h-3.5 w-3.5" /> Reset to default
+              <RotateCcw className="h-3.5 w-3.5" /> Reset name & icon
             </button>
           )}
           <div className="flex gap-2">

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import moment from 'moment';
-import { ArrowLeft, Loader2, Pause, Play, Trash2, Wrench } from 'lucide-react';
+import { ArrowLeft, Loader2, Pause, PencilLine, Play, Trash2, Wrench } from 'lucide-react';
 import { base44 } from '@/api/base44Client';
 import Nav from '@/components/site/Nav';
 import Footer from '@/components/site/Footer';
@@ -10,6 +10,8 @@ import AgentStatusPill from '@/components/agents/AgentStatusPill';
 import AgentTaskRunner from '@/components/agents/AgentTaskRunner';
 import AgentHistory from '@/components/agents/AgentHistory';
 import { BrandIcon, useAgentBranding } from '@/components/agents/brandIcons';
+import AgentEditDialog from '@/components/agents/AgentEditDialog';
+import { useAuth } from '@/lib/AuthContext';
 import ResearchPanel from '@/components/research/ResearchPanel';
 import WorkflowPanel from '@/components/workflow/WorkflowPanel';
 import { isResearchAgent } from '@/components/research/researchHelpers';
@@ -45,6 +47,11 @@ export default function AgentDetail() {
   const billing = useAgentBilling();
   const { isHired } = billing;
   const brandIcon = useAgentBranding().iconFor(agent?.id);
+  // Edit (name, icon, description, category, status) is offered to platform admins only;
+  // the server refuses anyone else, whatever the page shows.
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
+  const [editing, setEditing] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -167,6 +174,16 @@ export default function AgentDetail() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={() => setEditing(true)}
+              className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-4 py-2.5 text-sm text-slate-300 transition-colors hover:border-sky-400/40 hover:text-white"
+            >
+              <PencilLine className="h-4 w-4" />
+              Edit
+            </button>
+          )}
           <button
             type="button"
             onClick={() => changeStatus(isActive ? 'paused' : 'active')}
@@ -207,6 +224,17 @@ export default function AgentDetail() {
           )}
         </div>
       </div>
+
+      {editing && (
+        <AgentEditDialog
+          subject={agent.id}
+          onClose={() => setEditing(false)}
+          onSaved={(saved) => {
+            setEditing(false);
+            if (saved) setAgent((prev) => ({ ...prev, name: saved.name, summary: saved.description || null, specialization: saved.category || null, status: saved.status }));
+          }}
+        />
+      )}
 
       <div className="mt-8 grid gap-5 lg:grid-cols-[1.35fr_0.9fr]">
         <div className="min-w-0 space-y-5">

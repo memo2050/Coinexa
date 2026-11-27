@@ -1,12 +1,10 @@
 import { useState } from 'react';
-import { ChevronDown, Loader2, PencilLine } from 'lucide-react';
+import { ChevronDown, Loader2 } from 'lucide-react';
 import AdminPageHeader from '@/components/admin/AdminPageHeader';
 import DataClassBadge from '@/components/admin/DataClassBadge';
 import EmptyState from '@/components/admin/EmptyState';
 import useAdminEndpoint from '@/components/admin/useAdminEndpoint';
 import { fmtDate, fmtDuration, fmtLabel, fmtNumber, fmtPercent } from '@/components/admin/format';
-import AgentBrandingEditor from '@/components/admin/AgentBrandingEditor';
-import { BrandIcon } from '@/components/agents/brandIcons';
 
 const selectClass =
   'w-full rounded-xl border border-white/10 bg-[#05070a]/70 px-3 py-2 text-xs text-slate-200 focus:border-sky-400/60 focus:outline-none';
@@ -23,28 +21,6 @@ export default function AdminAgentsPage() {
   const [performance, setPerformance] = useState('all');
   const [organizationId, setOrganizationId] = useState('all');
   const [openId, setOpenId] = useState(null);
-  const [editing, setEditing] = useState(null);
-  // Names and icons (super admin only; the server re-checks every request).
-  const branding = useAdminEndpoint('adminAgentBranding', { action: 'list' });
-  const brandBySubject = new Map(
-    [...(branding.data?.featured || []), ...(branding.data?.agents || [])].map((item) => [item.subject, item]),
-  );
-  const editButton = (subject) => {
-    const item = brandBySubject.get(subject);
-    return (
-      <button
-        type="button"
-        disabled={!item}
-        onClick={(event) => {
-          event.stopPropagation();
-          setEditing(item);
-        }}
-        className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[0.68rem] font-semibold text-slate-200 transition-colors hover:border-sky-400/40 hover:text-white disabled:opacity-50"
-      >
-        <PencilLine className="h-3.5 w-3.5" /> Name & icon
-      </button>
-    );
-  };
 
   const { data, loading, error, reload } = useAdminEndpoint('adminAgents', {
     status,
@@ -58,34 +34,10 @@ export default function AdminAgentsPage() {
       <AdminPageHeader
         eyebrow="Command center"
         title="AI agents"
-        description="Every agent on the platform with its workflow, execution and usage record. Configuration and status are not changed here; agent names and icons can be edited by the super admin."
-        onRefresh={() => {
-          reload();
-          branding.reload();
-        }}
+        description="Every agent on the platform with its workflow, execution and usage record. Read-only: configuration and status are not changed here."
+        onRefresh={reload}
         loading={loading}
       />
-
-      {branding.error && (
-        <p className="rounded-xl border border-rose-400/30 bg-rose-500/10 px-4 py-2.5 text-sm text-rose-200">{branding.error}</p>
-      )}
-      {branding.data && (
-        <div>
-          <p className="mb-2 text-[0.68rem] uppercase tracking-[0.14em] text-slate-600">Featured agents</p>
-          <ul className="grid gap-2 sm:grid-cols-2">
-            {branding.data.featured.map((item) => (
-              <li key={item.subject} className="flex items-center gap-3 rounded-2xl border border-white/[0.08] bg-[#0a0f19] px-4 py-3">
-                <BrandIcon icon={item.icon || { kind: 'library', key: item.defaultIcon }} />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate font-heading text-sm font-semibold text-white">{item.name}</p>
-                  <p className="truncate text-[0.66rem] text-slate-500">{item.icon || item.name !== item.defaultName ? 'Customised' : 'Default name and icon'}</p>
-                </div>
-                {editButton(item.subject)}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
 
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         <label>
@@ -169,11 +121,10 @@ export default function AdminAgentsPage() {
                     onClick={() => setOpenId(open ? null : agent.id)}
                     className="flex w-full items-start gap-3 px-4 py-3.5 text-left"
                   >
-                    {brandBySubject.get(agent.id)?.icon && <BrandIcon icon={brandBySubject.get(agent.id).icon} />}
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="truncate font-heading text-sm font-semibold text-white">
-                          {brandBySubject.get(agent.id)?.name || agent.name}
+                          {agent.name}
                         </span>
                         <span className={`text-[0.62rem] uppercase tracking-[0.14em] ${STATUS_TONE[agent.status] || 'text-slate-400'}`}>
                           {agent.status}
@@ -233,7 +184,6 @@ export default function AdminAgentsPage() {
                           <dd className="break-all font-mono text-[0.62rem] text-slate-500">{agent.id}</dd>
                         </div>
                       </dl>
-                      <div className="mt-3">{editButton(agent.id)}</div>
                     </div>
                   )}
                 </li>
@@ -241,18 +191,6 @@ export default function AdminAgentsPage() {
             })}
           </ul>
         </>
-      )}
-
-      {editing && (
-        <AgentBrandingEditor
-          item={editing}
-          onClose={() => setEditing(null)}
-          onSaved={() => {
-            setEditing(null);
-            branding.reload();
-            reload();
-          }}
-        />
       )}
     </div>
   );

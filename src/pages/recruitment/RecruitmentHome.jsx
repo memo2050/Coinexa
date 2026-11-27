@@ -6,6 +6,7 @@ import Footer from '@/components/site/Footer';
 import SectionHeading from '@/components/site/SectionHeading';
 import { recruitment, errorText } from '@/api/recruitment';
 import { ErrorNote, Loading, Panel, Stat, ghostBtn, inputCls, money, primaryBtn } from '@/components/recruitment/ui';
+import { useAgentBranding } from '@/components/agents/brandIcons';
 
 const INTEGRATION_TONE = {
   available: 'text-emerald-300',
@@ -21,6 +22,7 @@ const INTEGRATION_LABEL = {
 };
 
 export default function RecruitmentHome() {
+  const featuredName = useAgentBranding().featured('recruitment').name;
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [filters, setFilters] = useState({});
@@ -70,7 +72,7 @@ export default function RecruitmentHome() {
         <div className="relative mx-auto w-full max-w-6xl space-y-6 px-5 sm:px-8">
           <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
             <SectionHeading
-              eyebrow="AI Recruitment & Talent Sourcing Agent"
+              eyebrow={featuredName || 'AI Recruitment & Talent Sourcing Agent'}
               title="Recruitment"
               highlight="campaigns"
               description="Find, evaluate, contact and negotiate with IT professionals worldwide — within the budget you approve, with consent and a full audit trail."

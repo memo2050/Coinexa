@@ -93,7 +93,7 @@ const listeners = new Set();
 async function load() {
   const { data, error } = await supabase
     .from('agent_branding')
-    .select('subject, agent_id, name, icon_kind, icon_key, icon_path, icon_version');
+    .select('subject, agent_id, name, description, icon_kind, icon_key, icon_path, icon_version');
   if (error) return {};
   return Object.fromEntries((data || []).map((r) => [r.subject, r]));
 }
@@ -123,6 +123,6 @@ export function useAgentBranding() {
   }, []);
   return {
     iconFor: (agentId) => toIcon(rows[agentId]),
-    featured: (key) => ({ name: rows[`featured:${key}`]?.name || null, icon: toIcon(rows[`featured:${key}`]) }),
+    featured: (key) => ({ name: rows[`featured:${key}`]?.name || null, description: rows[`featured:${key}`]?.description ?? null, icon: toIcon(rows[`featured:${key}`]) }),
   };
 }
