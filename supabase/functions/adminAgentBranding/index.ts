@@ -46,8 +46,12 @@ async function audit(user: Row, org: string | null, action: string, subject: str
   if (error) throw fail(`The change was saved but the audit log entry failed: ${error.message}`, 500);
 }
 
+// Each upload gets a new versioned path, so a replaced file is deleted outright; public
+// copies cached by the storage CDN expire within the hour (cacheControl 3600).
 async function removeUpload(path: string | null | undefined) {
-  if (path) await db().storage.from(BUCKET).remove([path]).catch(() => null);
+  if (!path) return;
+  const { error } = await db().storage.from(BUCKET).remove([path]);
+  if (error) console.error('adminAgentBranding: old icon not deleted', path, error.message);
 }
 
 async function list() {
@@ -129,7 +133,7 @@ async function save(user: Row, body: Row) {
     const file = validateIcon(String(icon.data || ''));
     const version = (existing?.icon_version || 0) + 1;
     const path = `${subject.replace(/[^a-z0-9-]/gi, '_')}/v${version}.${file.ext}`;
-    const { error } = await db().storage.from(BUCKET).upload(path, file.bytes, { contentType: file.contentType, upsert: true, cacheControl: '31536000' });
+    const { error } = await db().storage.from(BUCKET).upload(path, file.bytes, { contentType: file.contentType, upsert: true, cacheControl: '3600' });
     if (error) throw fail(`The icon could not be stored: ${error.message}`, 500);
     uploaded = { path };
     Object.assign(row, { icon_kind: 'upload', icon_key: null, icon_path: path, icon_version: version });

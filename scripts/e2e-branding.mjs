@@ -37,6 +37,8 @@ export async function brandingChecks({ check, call, admin, URL_, ANON, A, B, org
   const featured = 'featured:cyber-scan';
   const { data: featuredBefore } = await admin.from('agent_branding').select('*').eq('subject', featured).maybeSingle();
   const publicUrl = (path) => `${URL_}/storage/v1/object/public/agent-icons/${path}`;
+  // Whether a file still exists in storage (the public URL can be served from the CDN cache).
+  const stored = async (path) => { const [dir, name] = path.split('/'); const { data } = await admin.storage.from('agent-icons').list(dir); return (data || []).some((f) => f.name === name); };
   const row = async (subject) => (await admin.from('agent_branding').select('*').eq('subject', subject).maybeSingle()).data;
 
   try {
@@ -141,19 +143,19 @@ export async function brandingChecks({ check, call, admin, URL_, ANON, A, B, org
       const r = await call(A.token, FN, { action: 'save', subject: agent.id, icon: { kind: 'upload', data: dataUrl('image/svg+xml', Buffer.from(GOOD_SVG)) } });
       const b = await row(agent.id);
       const svg = await fetch(publicUrl(b.icon_path));
-      const old = await fetch(publicUrl(pngPath));
-      const ok = r.status === 200 && /\.svg$/.test(b.icon_path) && svg.status === 200 && svg.headers.get('content-type') === 'image/svg+xml' && old.status >= 400;
-      return ok ? `${b.icon_path} served as image/svg+xml; previous PNG gone (HTTP ${old.status})` : { fail: JSON.stringify({ r: r.data, b, svg: svg.status, old: old.status }) };
+      const oldStored = await stored(pngPath);
+      const ok = r.status === 200 && /\.svg$/.test(b.icon_path) && svg.status === 200 && svg.headers.get('content-type') === 'image/svg+xml' && !oldStored;
+      return ok ? `${b.icon_path} served as image/svg+xml; previous PNG deleted from storage` : { fail: JSON.stringify({ svg: svg.status, type: svg.headers.get('content-type'), oldStored, path: b.icon_path }) };
     });
     await check('branding', 'reset restores the default name and icon, deletes the file, and is audited', async () => {
       const before = await row(agent.id);
       const r = await call(A.token, FN, { action: 'reset', subject: agent.id });
       const a = (await admin.from('agents').select('name').eq('id', agent.id).single()).data;
       const b = await row(agent.id);
-      const file = await fetch(publicUrl(before.icon_path));
+      const fileStored = await stored(before.icon_path);
       const { data: logs } = await admin.from('audit_logs').select('detail').eq('target_id', agent.id).eq('action', 'agent.branding_reset');
-      const ok = r.status === 200 && a.name === agent.name && !b.icon_kind && !b.default_name && file.status >= 400 && logs.length === 1;
-      return ok ? `name back to "${a.name}", no custom icon, file deleted; audit: ${logs[0].detail}` : { fail: JSON.stringify({ r: r.data, a, b, file: file.status, logs }) };
+      const ok = r.status === 200 && a.name === agent.name && !b.icon_kind && !b.default_name && !fileStored && logs.length === 1;
+      return ok ? `name back to "${a.name}", no custom icon, file deleted from storage; audit: ${logs[0].detail}` : { fail: JSON.stringify({ fileStored, icon: b.icon_kind, logs: logs.length, name: a.name }) };
     });
     await check('branding', 'featured agent: admin renames and sets an icon, the catalog reads it, reset restores', async () => {
       const s = await call(A.token, FN, { action: 'save', subject: featured, name: 'Network Guard Agent', icon: { kind: 'library', key: 'lock' } });
